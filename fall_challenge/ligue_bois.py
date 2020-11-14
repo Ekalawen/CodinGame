@@ -6,7 +6,7 @@ from enum import Enum
 
 import math
 import numpy as np
-from typing import List, Tuple
+from typing import List, Tuple, Any
 
 NB_GEMMES = 4
 MAX_NB_ITEMS = 10
@@ -31,9 +31,40 @@ class ActionType(Enum):
     SORT = "CAST"
     SORT_OPPONENT = "OPPONENT_CAST"
     POTION = "BREW"
-    REST = "REST"
     LEARN = "LEARN"
+    REST = "REST"
     WAIT = "WAIT"
+
+
+class Retour:
+    def __init__(self, action_type: ActionType, action_id: int, intent: str):
+        self.action_type = action_type
+        self.aciton_id = action_id
+        self.intent = intent
+
+    def apply(self):
+        if self.action_type == ActionType.REST or self.action_type == ActionType.WAIT:
+            print(f"{self.action_type.value} {self.intent}")
+        else:
+            print(f"{self.action_type.value} {self.aciton_id} {self.intent}")
+
+    @classmethod
+    def construct(cls, something: Any, intent=None):
+        if isinstance(something, str):
+            intent = intent or "REST"
+            return Retour(ActionType.REST, 0, intent)
+        elif isinstance(something, Learn):
+            intent = intent or f"LEARN {something}"
+            return Retour(ActionType.LEARN, something.id, intent)
+        elif isinstance(something, Sort):
+            intent = intent or f"{something}"
+            return Retour(ActionType.SORT, something.id, intent)
+        elif isinstance(something, Potion):
+            intent = intent or f"BREW {something}"
+            return Retour(ActionType.POTION, something.id, intent)
+        else:
+            debug(f"construct bizarre dans Retour : {something}")
+            return None
 
 
 class Inventory:
@@ -297,6 +328,19 @@ class Potion:
     def distance_to_inventory(self, inventory: Inventory):
         return dist_a_to_b(inventory.inv, self.cout)
 
+    def get_first_retour(self) -> 'Retour':
+        if self.path == []:
+            return Retour.construct(self, f"BREW POTION {self}")
+        if self.path == None:
+            return None
+        return Retour.construct(self.path[-1])
+
+    def get_distance(self) -> int:
+        if self.path != None:
+            return len(self.path) + 1
+        else:
+            return -1
+
 
 class Player:
     def __init__(self, inv0: int, inv1: int, inv2: int, inv3: int, score: int):
@@ -344,9 +388,9 @@ def dist_a_to_b(a: np.array, b: np.array) -> float:
 def compute_heuristique(n: 'Node', goal: 'Node', m: 'Model') -> float:
     total = dist_a_to_b(n.inventory.inv, goal.inventory.inv)
 
-    from_sorts = compute_heuristique_sorts(n.sorts, m)
+    # from_sorts = compute_heuristique_sorts(n.sorts, m)
     # debug(f"heuristique from gemmes = {total} from sorts = {from_sorts}({len(n.sorts)})")
-    total += from_sorts
+    # total += from_sorts
     sorts_castables = [s for s in n.sorts if isinstance(s, str) or s.castable]
     total += (0.01 * len(sorts_castables))
     return total
@@ -392,14 +436,14 @@ class Node:
             node = Node(new_inventory, new_sorts, self.learns, self, goal, sort, m)
             nodes.append(node)
 
-        for learn in self.get_possible_learns():
-            if learn.get_estimated_gain(0, 0) >= 2:
-                new_inventory = self.inventory.copy()
-                new_inventory.update_inventory_with_learn(learn)
-                new_sorts = update_sorts_with_learn(self.sorts, learn)
-                new_learns = update_learns_with_learn(self.learns, learn)
-                node = Node(new_inventory, new_sorts, new_learns, self, goal, learn, m)
-                nodes.append(node)
+        # for learn in self.get_possible_learns():
+        #     if learn.get_estimated_gain(0, 0) >= 2:
+        #         new_inventory = self.inventory.copy()
+        #         new_inventory.update_inventory_with_learn(learn)
+        #         new_sorts = update_sorts_with_learn(self.sorts, learn)
+        #         new_learns = update_learns_with_learn(self.learns, learn)
+        #         node = Node(new_inventory, new_sorts, new_learns, self, goal, learn, m)
+        #         nodes.append(node)
 
         return nodes
 
@@ -518,18 +562,112 @@ def find_greedy_objectif(m: Model) -> Potion:
     sorted(m.potions, key=lambda p: p.distance_to_inventory(m.me.inventory))
     for potion in m.potions:
         potion.compute_path(m)
+        debug(f"{potion} dist = {potion.get_distance()} score = {potion.get_score(m)}")
     potion_scores = [p.get_score(m) for p in m.potions]
     best_potion = m.potions[np.argmax([potion_scores])]
     return best_potion
 
 
+def find_best_learn(m: 'Model') -> 'Learn':
+    good_spells = [
+    np.array([1, 0, 1, 0]),
+    np.array([0, 0, 0, 1]),
+    np.array([0, 2, 0, 0]),
+    np.array([2, 1, 0, 0]),
+    np.array([4, 0, 0, 0]),
+    np.array([0, 0, 1, 0]),
+    np.array([1, 1, 0, 0]),
+    np.array([3, 0, 0, 0]),
+    np.array([-3, 0, 0, 1]),
+    np.array([2, -2, 0, 1]),
+    np.array([-2, 0, 1, 0]),
+    np.array([-2, 2, 0, 0]),
+    np.array([-4, 0, 2, 0]),
+    # np.array([3, -1, 0, 0]),
+    # np.array([2, 3, -2, 0]),
+    # np.array([2, 1, -2, 1]),
+    # np.array([3, 0, 1, -1]),
+    # np.array([3, -2, 1, 0]),
+    # np.array([2, -3, 2, 0]),
+    # np.array([2, 2, 0, -1]),
+    # np.array([-1, 0, -1, 1]),
+    # np.array([0, 2, -1, 0]),
+    # np.array([-3, 1, 1, 0]),
+    # np.array([0, 2, -2, 1]),
+    # np.array([1, -3, 1, 1]),
+    # np.array([0, 3, 0, -1]),
+    # np.array([0, -3, 0, 2]),
+    # np.array([1, 1, 1, -1]),
+    # np.array([1, 2, -1, 0]),
+    # np.array([4, 1, -1, 0]),
+    # np.array([-5, 0, 0, 2]),
+    # np.array([-4, 0, 1, 1]),
+    # np.array([0, 3, 2, -2]),
+    # np.array([1, 1, 3, -2]),
+    # np.array([-5, 0, 3, 0]),
+    # np.array([-2, 0, -1, 2]),
+    # np.array([0, 0, -3, 3]),
+    # np.array([0, -3, 3, 0]),
+    # np.array([-3, 3, 0, 0]),
+    # np.array([0, 0, -2, 2]),
+    # np.array([0, -2, 2, 0]),
+    # np.array([0, 0, 2, -1])
+    ]
+
+    for good_spell in good_spells:
+        for learn in m.learns:
+            if all(good_spell - (learn.reward - learn.cout) == 0):
+                return learn
+    return None
+
+
 def apply_simple_algorithm(m: 'Model'):
     for sort in m.sorts:
         if sort.is_castable(m.me.inventory):
-            print(f"{ActionType.SORT.value} {sort.id} DEFAUT SORT {sort}")
-            return
-    print(f"{ActionType.REST.value} DEFAUT REST !")
-    return
+            return Retour.construct(sort, f"DEFAULT SORT {sort}")
+    return Retour(ActionType.REST, 0, "DEFAULT REST :/")
+
+
+def act(retour: Retour, m: 'Model') -> 'Model':
+    if not retour:
+        retour = apply_simple_algorithm(m)
+    retour.apply()
+    if retour.action_type == ActionType.POTION:
+        m.nb_potions_to_craft -= 1
+    return m
+
+
+def think(m: 'Model') -> 'Retour':
+    retour = go_for_learn(m)
+    if retour:
+        return retour
+    retour = go_for_potion(m)
+    return retour
+
+
+def go_for_potion(m: Model) -> 'Retour':
+    potion_objectif = find_greedy_objectif(m)
+    print(f"potion_objectif = (id={potion_objectif.id}, len={potion_objectif.get_distance()}, "
+          f"score={potion_objectif.get_score( m)})", file=sys.stderr, flush=True)
+    retour = potion_objectif.get_first_retour()
+    if retour != None and retour.action_type == ActionType.SORT:
+        retour.intent = f"{potion_objectif.path[-1]} for {potion_objectif}"
+    return retour
+
+
+def go_for_learn(m: 'Model') -> 'Retour':
+    to_learn = find_best_learn(m)
+    if to_learn:
+        end = Node(Inventory(to_learn.achat_cout), [], learns=None, precedent=None, goal=None, sort_used=None, m=m)
+        start = Node(m.me.inventory, m.sorts + [ActionType.REST.value], learns=m.learns, precedent=None, goal=end,
+                     sort_used=None, m=m)
+        path = a_star(start, end, m)
+        if path == None:
+            return None
+        if path == []:
+            return Retour(ActionType.LEARN, to_learn.id, f"LEARN SORT {to_learn} !")
+        return Retour.construct(path[-1], f"LEARNING ... {to_learn}")
+    return None
 
 
 def run():
@@ -537,33 +675,16 @@ def run():
     nb_potions_to_craft = NB_POTIONS_CRAFTABLE_MAX
     while True:
         m = Model.read(nb_potions_to_craft)
-
         m.debut_time = time.time()
-        potion_objectif = find_greedy_objectif(m)
-        print(f"round = {current_round} (time={(time.time() - m.debut_time) * 1000})", file=sys.stderr, flush=True)
 
-        if potion_objectif.path is not None:
-            print(f"potion_objectif = (id={potion_objectif.id}, len={len(potion_objectif.path)}, score={potion_objectif.get_score(m)})", file=sys.stderr, flush=True)
-            if potion_objectif.path:
-                if potion_objectif.get_score(m) == -1:
-                    print(f"{ActionType.WAIT.value} ERROR")
-                action = potion_objectif.path[-1]
-                if action == ActionType.REST.value:
-                    print(f"{ActionType.REST.value} REST {potion_objectif}")
-                elif action.type == ActionType.SORT.value:
-                    print(f"{ActionType.SORT.value} {action.id} SORT {potion_objectif}")
-                elif action.type == ActionType.LEARN.value:
-                    print(f"{ActionType.LEARN.value} {action.id} LEARN ! <3")
-                potion_objectif.path = potion_objectif.path[:-1]
-            else:
-                print(f"{ActionType.POTION.value} {potion_objectif.id} {potion_objectif} !!! :D")
-                nb_potions_to_craft -= 1
-        else:
-            print(f"potion_objectif = (id={potion_objectif.id}, len={None}, score={potion_objectif.get_score(m)})", file=sys.stderr, flush=True)
-            apply_simple_algorithm(m)
-
+        for learn in m.learns:
+            debug(f"{learn} repeatable = {learn.repeatable}")
+        retour = think(m)
+        m = act(retour, m)
 
         current_round += 1
+        nb_potions_to_craft = m.nb_potions_to_craft
+        print(f"round = {current_round} (time={(time.time() - m.debut_time) * 1000})", file=sys.stderr, flush=True)
 
 
 if __name__ == '__main__':
