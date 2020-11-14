@@ -9,7 +9,7 @@ from typing import List, Any
 NB_GEMMES = 4
 MAX_NB_ITEMS = 10
 SEUIL_TIME = 0.042
-NB_LEARN_MAX = 12
+NB_LEARN_MAX = 15
 NB_SORTS_INITIAUX = 5  # Avec REST
 DECROISSANCE_SORTS = 1.2
 NB_POTIONS_CRAFTABLE_MAX = 6
@@ -626,9 +626,13 @@ def find_greedy_objectif(m: Model) -> Potion:
         best_potion = m.potions[np.argmax([potion_scores])]
         return best_potion
     else:
-        potion_distance = min([p.get_distance() for p in m.potions if p.get_distance() != -1])
-        best_distance = [p for p in m.potions if p.get_distance() == potion_distance][0]
-        return best_distance
+        reachable = [p for p in m.potions if p.get_distance() != -1]
+        if reachable != []:
+            potion_distance = min([p.get_distance() for p in reachable])
+            best_distance = [p for p in m.potions if p.get_distance() == potion_distance][0]
+            return best_distance
+        else:
+            return None
 
 
 def find_best_learn(m: 'Model') -> 'Learn':
@@ -677,11 +681,12 @@ def find_best_learn(m: 'Model') -> 'Learn':
     # np.array([0, 0, 2, -1])
     ]
 
-    for good_spell in good_spells:
-        for learn in m.learns:
-            if all(good_spell - (learn.reward - learn.cout) == 0):
-                return learn
-    return None
+    # for good_spell in good_spells:
+    #     for learn in m.learns:
+    #         if all(good_spell - (learn.reward - learn.cout) == 0):
+    #             return learn
+    # return None
+    return m.learns[0]
 
 
 def apply_simple_algorithm(m: 'Model'):
@@ -701,6 +706,7 @@ def act(retour: Retour, m: 'Model') -> 'Model':
 
 
 def go_for_value(m: 'Model') -> 'Retour':
+    debug(f"GO FOR VALUE\n")
     if get_value_of_array(m.me.inventory.inv) >= STOP_VALUE_TRESHOLD or m.nb_potions_to_craft <= 1:
         return None
     end = Node(Inventory(np.array([10, 10, 10, 10])), [], learns=None, precedent=None, goal=None, sort_used=None, m=m)
@@ -728,6 +734,7 @@ def think(m: 'Model') -> 'Retour':
 
 
 def go_for_potion(m: Model) -> 'Retour':
+    debug(f"GO FOR POTION")
     potion_objectif = find_greedy_objectif(m)
     print(f"potion_objectif = (id={potion_objectif.id}, len={potion_objectif.get_distance()}, "
           f"score={potion_objectif.get_score( m)})", file=sys.stderr, flush=True)
@@ -741,6 +748,7 @@ def go_for_potion(m: Model) -> 'Retour':
 
 
 def go_for_learn(m: 'Model') -> 'Retour':
+    debug(f"GO FOR LEARN\n")
     if len(m.sorts) >= NB_LEARN_MAX:
         return None
     to_learn = find_best_learn(m)
@@ -758,6 +766,7 @@ def go_for_learn(m: 'Model') -> 'Retour':
 
 
 def if_can_brew_brew(m: Model) -> 'Retour':
+    debug(f"IF CAN BREW POTION\n")
     brewables = [p for p in m.potions if p.is_brewable(m.me.inventory)]
     if brewables == []:
         return None
