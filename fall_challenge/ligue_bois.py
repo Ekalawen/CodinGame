@@ -1,31 +1,16 @@
 import sys
-import math
 import time
 from dataclasses import dataclass, replace
 from enum import Enum
 
 import numpy as np
-from typing import List, Any, Tuple
+from typing import List, Tuple
 
-# action_id: the unique ID of this spell or recipe
-# action_type: in the first league: BREW; later: CAST, OPPONENT_CAST, LEARN, BREW
-# delta_0: tier-0 ingredient change
-# delta_1: tier-1 ingredient change
-# delta_2: tier-2 ingredient change
-# delta_3: tier-3 ingredient change
-# price: the price in rupees if this is a potion
-# tome_index: in the first two leagues: always 0; later: the index in the tome if this is a tome spell,
-# equal to the read-ahead tax
-# tax_count: in the first two leagues: always 0; later: the amount of taxed tier-0 ingredients you gain from
-# learning this spell
-# castable: in the first league: always 0; later: 1 if this is a castable player spell
-# repeatable: for the first two leagues: always 0; later: 1 if this is a repeatable player spell
+READ_STDIN = True
+# READ_STDIN = False
 
 NB_GEMMES = 4
 MAX_NB_ITEMS = 10
-
-# READ_STDIN = True
-READ_STDIN = False
 
 
 def debug(message: str, end="\n"):
@@ -34,11 +19,7 @@ def debug(message: str, end="\n"):
 
 
 def read_input():
-    if READ_STDIN:
-        return input()
-    else:
-        sys.stdin = open('in.txt', 'r')
-        return input()
+    return input()
 
 
 class ActionType(Enum):
@@ -74,6 +55,12 @@ class Inventory:
     def copy(self):
         return Inventory(self.inv)
 
+    def __repr__(self):
+        return self.__str__()
+
+    def __str__(self):
+        return f"{self.inv}"
+
 
 @dataclass
 class Sort:
@@ -107,7 +94,7 @@ class Sort:
         return self.__str__()
 
     def __str__(self):
-        return f"Sort({str(self.reward - self.cout)})"
+        return f"Sort({str(self.reward - self.cout)}({'O' if self.castable else 'X'}))"
 
     def is_castable(self, inventory: Inventory) -> bool:
         return self.castable \
@@ -134,81 +121,18 @@ class Sort:
 
 
 def update_sorts_with_sort(sorts: List[Sort], sort: Sort) -> List[Sort]:
-    new_sorts = [s.copy() for s in sorts]
+    new_sorts = [s.copy() if not isinstance(s, str) else s for s in sorts]
     if sort == ActionType.REST.value:
-        new_sorts = [s.rest() for s in new_sorts]
+        new_sorts = [s.rest() if not isinstance(s, str) else s for s in new_sorts]
     else:
-        new_sorts = [s if s.id != sort.id else s.get_used() for s in new_sorts]
+        new_sorts = [(s if s.id != sort.id else s.get_used()) if not isinstance(s, str) else s for s in new_sorts]
     return new_sorts
-
-
-# def update_sorts_with_sorts(sorts: List[Sort], path: List[Sort]) -> List[Sort]:
-#     new_sorts = [s.copy() for s in sorts]
-#     for p in path:
-#         if p == ActionType.REST.value:
-#             sorts = [s.rest() for s in sorts]
-#         else:
-#             sorts = [s if s.id != p.id else s.get_used() for s in sorts]
-#     return sorts
-
-
-# class Gemme:
-#     memo = {}
-#
-#     @classmethod
-#     def how_to_get_to_gemmes(cls, inventory: Inventory, sorts: List[Sort], goal: np.array) -> List[Sort]:
-#         diff = goal - inventory.inv
-#         diff[diff < 0] = 0
-#         if max(diff) == 0:
-#             return []
-#         debug(f"diff = {diff}")
-#         total_path = []
-#         for gemme_indice in reversed(range(NB_GEMMES)):
-#             while diff[gemme_indice] > 0:
-#                 path = cls.how_to_add_gemme(inventory, sorts, gemme_indice)
-#                 if path is None:
-#                     return None
-#                 total_path.extend(path)
-#                 sorts = update_sorts_with_sorts(sorts, path)
-#                 inventory.update_inventory_with_sorts(path)
-#                 diff = goal - inventory.inv
-#                 diff[diff < 0] = 0
-#                 debug(f"diff = {diff} inventory = {inventory.inv} goal = {goal}")
-#         return total_path
-#
-#     @classmethod
-#     def how_to_add_gemme(cls, inventory: Inventory, sorts: List[Sort], gemme_indice: int) -> List[Sort]:
-#         debug(f"Adding {gemme_indice}")
-#         sort_utiles = [s for s in sorts if s.reward[gemme_indice] > 0]
-#         methods = []
-#         for sort_utile in sort_utiles:
-#             if sort_utile.is_castable(inventory):
-#                 return [sort_utile]
-#             else:
-#                 needed_inventory = [max(i, c) for i, c in zip(inventory.inv, sort_utile.cout)]
-#                 if np.sum(needed_inventory) > MAX_NB_ITEMS:
-#                     continue
-#                 path = cls.how_to_get_to_gemmes(inventory, sorts, needed_inventory)
-#                 if path is not None:
-#                     remaining_sorts = update_sorts_with_sorts(sorts, path)
-#                     sort_utile_remaining = \
-#                     [r for r in remaining_sorts if r != ActionType.REST.value and r.id == sort_utile.id][0]
-#                     if not sort_utile_remaining.castable:
-#                         path.append(ActionType.REST.value)
-#                     methods.append(path)
-#
-#         if not methods:
-#             return None
-#
-#         min_length = min([len(m) for m in methods])
-#         min_methods = [m for m in methods if len(m) == min_length]
-#         return min_methods[0]
 
 
 class Action:
     @staticmethod
     def read():
-        inp = input()
+        inp = read_input()
         debug(f"{inp}")
         action_id, action_type, delta_0, delta_1, delta_2, delta_3, price, tome_index, tax_count, castable, repeatable \
             = inp.split()
@@ -260,7 +184,7 @@ class Potion:
     @staticmethod
     def read():
         action_id, action_type, delta_0, delta_1, delta_2, delta_3, price, tome_index, tax_count, castable, repeatable \
-            = input().split()
+            = read_input().split()
         action_id = int(action_id)
         delta_0 = int(delta_0)
         delta_1 = int(delta_1)
@@ -274,18 +198,29 @@ class Potion:
         return Potion(action_id, action_type, delta_0, delta_1, delta_2, delta_3, price, tome_index, tax_count,
                       castable, repeatable)
 
-    def get_score(self, inventory: np.array, sorts: List[Sort], goal: np.array) -> float:
-        return self.price / self.difficulty_to_get(inventory, sorts, goal)
+    def get_score(self, m: 'Model') -> float:
+        difficulty = self.difficulty_to_get(m)
+        if difficulty is None:
+            return -1
+        return self.price / (difficulty + 1)
 
     def difficulty_to_get(self, m: 'Model') -> int:
         if not self.path:
             self.compute_path(m)
+        if self.path is None:
+            return None
         return len(self.path)
 
     def compute_path(self, m: 'Model'):
         end = Node(Inventory(self.cout), [], precedent=None, goal=None, sort_used=None)
-        start = Node(m.me.inventory, m.sorts, precedent=None, goal=end, sort_used=None)
+        start = Node(m.me.inventory, m.sorts + [ActionType.REST.value], precedent=None, goal=end, sort_used=None)
         self.path = a_star(start, end)
+
+    def __repr__(self):
+        return self.__str__()
+
+    def __str__(self):
+        return f"Potion({str(self.cout)}({self.price}))"
 
 
 class Player:
@@ -305,7 +240,9 @@ class Player:
 
     @staticmethod
     def read():
-        return Player(*[int(i) for i in input().split()])
+        inp = read_input()
+        debug(f"{inp}")
+        return Player(*[int(i) for i in inp.split()])
 
 
 def best_fit(potions: List[Potion], me: Player, quantity: int) -> Tuple[List[Potion], Player]:
@@ -398,6 +335,12 @@ class Node:
     def is_better_than(self, other: 'Node') -> bool:
         return all(self.inventory.inv - other.inventory.inv >= 0)
 
+    def __repr__(self):
+        return self.__str__()
+
+    def __str__(self):
+        return f"{self.inventory}+{self.sorts}({self.value})"
+
 
 def insert_at_good_place(opened: List[Node], voisin: Node) -> List[Node]:
     for i, o in enumerate(opened):
@@ -435,7 +378,6 @@ def a_star(start: Node, end: Node) -> List[Sort]:
     closed = []
 
     while len(opened) > 0:
-        debug(f"opened_len = {len(opened)}")
         current = opened[-1]
         opened = opened[:-1]
 
@@ -444,7 +386,6 @@ def a_star(start: Node, end: Node) -> List[Sort]:
             return path
 
         voisins = current.get_voisins(end)
-        debug(f"voisins_len = {len(voisins)}")
 
         for voisin in voisins:
             if voisin not in closed:
@@ -466,7 +407,7 @@ class Model:
 
     @staticmethod
     def read():
-        nb_objects = int(input())
+        nb_objects = int(read_input())
         debug(f"{nb_objects}")
         actions = [Action.read() for _ in range(nb_objects)]
         potions = [a for a in actions if a.type == ActionType.POTION.value]
@@ -477,27 +418,23 @@ class Model:
         return Model(potions, sorts, opp_sorts, me, opp)
 
 
-def find_greedy_objectif(m: Model, current_round: int) -> Potion:
-    if current_round == 0:
-        for potion in m.potions:
-            potion.compute_path(m)
-            debug(f"potion {potion.id} : path_len {len(potion.path)}")
-    not_none_potion = [p for p in m.potions if p.path]
-    shortest_length = min([len(p.path) for p in not_none_potion])
-    shortest_paths_potions = [p for p in not_none_potion if len(p.path) == shortest_length]
-    return shortest_paths_potions[0]
+def find_greedy_objectif(m: Model) -> Potion:
+    for potion in m.potions:
+        potion.compute_path(m)
+    potion_scores = [p.get_score(m) for p in m.potions]
+    best_potion = m.potions[np.argmax([potion_scores])]
+    return best_potion
 
 
 def run():
     current_round = 0
     nb_potions_to_craft = 3
-    m = None
     while True:
         m = Model.read()
 
         debut = time.time()
-        potion_objectif = find_greedy_objectif(m, current_round)
-        print(f"round = {current_round} (time={time.time() - debut})", file=sys.stderr, flush=True)
+        potion_objectif = find_greedy_objectif(m)
+        print(f"round = {current_round} (time={(time.time() - debut)*1000})", file=sys.stderr, flush=True)
 
         print(f"potion_objectif = ({potion_objectif.id})={potion_objectif.path}", file=sys.stderr, flush=True)
 
@@ -514,66 +451,6 @@ def run():
 
 
 if __name__ == '__main__':
+    if not READ_STDIN:
+        sys.stdin = open('in.txt', 'r', newline='\n')
     run()
-
-    # @classmethod
-    # def how_to_get_to_gemmes(cls, inventory: Inventory, sorts: List[Sort], goal: np.array) -> List[Sort]:
-    #     cls.memo = {}
-    #     return cls._how_to_get_to_gemmes(inventory, sorts, goal, 0)
-    #
-    # @classmethod
-    # def _how_to_get_to_gemmes(cls, inventory: Inventory, sorts: List[Sort], goal: np.array, nb: int) -> List[Sort]:
-    #     # debug(f"memo size = {len(cls.memo)}")
-    #     if cls.memo.get(str(inventory.inv), -1) != -1:
-    #         # debug(f"We already know that {inventory.inv} = {cls.memo.get(str(inventory.inv))}, skipping !")
-    #         return cls.memo.get(str(inventory.inv))
-    #     # debug(f"Inventory = {inventory.inv} goal = {goal}")
-    #     if all(inventory.inv - goal >= 0):
-    #         debug(f"Goal atteint ! ({inventory.inv}) >= ({goal})")
-    #         cls.memo[str(inventory.inv)] = []
-    #         return []
-    #     if inventory.get_nb_items() >= MAX_NB_ITEMS and not all(inventory.inv - goal >= 0):
-    #         debug(f"We are full ! inventory = {inventory.inv} goal = {goal}")
-    #         cls.memo[str(inventory.inv)] = None
-    #         return None
-    #     if nb >= 6:
-    #         debug(f"Trop long !")
-    #         cls.memo[str(inventory.inv)] = None
-    #         return None
-    #
-    #     list_sort_to_use = []
-    #     for i, sort in enumerate(sorts):
-    #         if sort.is_castable(inventory):
-    #             sorts_after_use = [s.copy() for s in sorts]
-    #             sorts_after_use[i] = sort.get_used()
-    #             new_inventory = inventory.copy()
-    #             new_inventory.update_inventory_with_sort(sort)
-    #             # debug(f"nb = {nb} take {sort}")
-    #             sorts_to_use = cls._how_to_get_to_gemmes(new_inventory, sorts_after_use, goal, nb + 1)
-    #             if sorts_to_use is not None:
-    #                 sorts_to_use.append(sort)
-    #                 list_sort_to_use.append(sorts_to_use)
-    #                 debug(f"sorts_to_use = {[s.id if s != ActionType.REST.value else s for s in sorts_to_use]}")
-    #                 debug(f"list_sort_to_use.len() = {len(list_sort_to_use)}")
-    #
-    #     if any([not s.castable for s in sorts]):
-    #         sorts_after_use = [s.copy().rest() for s in sorts]
-    #         if any([s.is_castable(inventory) for s in sorts_after_use]):
-    #             # debug(f"nb = {nb} take REST")
-    #             sorts_to_use = cls._how_to_get_to_gemmes(inventory, sorts_after_use, goal, nb + 1)
-    #             if sorts_to_use is not None:
-    #                 sorts_to_use.append(ActionType.REST.value)
-    #                 list_sort_to_use.append(sorts_to_use)
-    #                 debug(f"sorts_to_use = {[s.id if s != ActionType.REST.value else s for s in sorts_to_use]}")
-    #                 debug(f"list_sort_to_use.len() = {len(list_sort_to_use)}")
-    #
-    #     if not list_sort_to_use and not all(inventory.inv - goal >= 0):
-    #         debug(f"Impossible d'aller de {inventory.inv} à {goal} ! ({list_sort_to_use})")
-    #         cls.memo[str(inventory.inv)] = None
-    #         return None
-    #
-    #     min_length = min([len(l) for l in list_sort_to_use])
-    #     best_lists = [l for l in list_sort_to_use if len(l) == min_length]
-    #     # best_inventory = prendre celle qui a le meilleur inventaire
-    #     cls.memo[str(inventory.inv)] = best_lists[0]
-    #     return best_lists[0]
