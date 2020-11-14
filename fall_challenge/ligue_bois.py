@@ -14,6 +14,7 @@ NB_SORTS_INITIAUX = 5  # Avec REST
 DECROISSANCE_SORTS = 1.2
 NB_POTIONS_CRAFTABLE_MAX = 6
 COEF_COUT_VS_REWARD = 2
+STOP_VALUE_TRESHOLD = 15
 
 
 def debug(message: str, end="\n"):
@@ -70,6 +71,10 @@ class Retour:
         else:
             debug(f"construct bizarre dans Retour : {something}")
             return None
+
+
+def get_value_of_array(array: np.array) -> float:
+    return np.sum(array * np.array([1, 2, 3, 4]))
 
 
 class Inventory:
@@ -362,7 +367,7 @@ class Potion:
         return self.price
 
     def distance_to_inventory(self, inventory: Inventory):
-        return dist_a_to_b(inventory.inv, self.cout)
+        return avancement_from_a_to_b(inventory.inv, self.cout)
 
     def get_first_retour(self) -> 'Retour':
         if self.path == []:
@@ -376,6 +381,9 @@ class Potion:
             return len(self.path) + 1
         else:
             return -1
+
+    def is_brewable(self, inventory: Inventory):
+        return all(inventory.inv - self.cout >= 0)
 
 
 class Player:
@@ -408,7 +416,7 @@ def compute_heuristique_sorts(sorts: List[Sort], m: 'Model'):
     return total
 
 
-def dist_a_to_b(a: np.array, b: np.array) -> float:
+def avancement_from_a_to_b(a: np.array, b: np.array) -> float:
     a = a.copy()
     b = b.copy()
     total = 0
@@ -422,7 +430,7 @@ def dist_a_to_b(a: np.array, b: np.array) -> float:
 
 
 def compute_heuristique(n: 'Node', goal: 'Node', m: 'Model') -> float:
-    total = dist_a_to_b(n.inventory.inv, goal.inventory.inv)
+    total = avancement_from_a_to_b(n.inventory.inv, goal.inventory.inv)
 
     # from_sorts = compute_heuristique_sorts(n.sorts, m)
     # debug(f"heuristique from gemmes = {total} from sorts = {from_sorts}({len(n.sorts)})")
@@ -463,7 +471,9 @@ class Node:
             self.value = None
             self.sort_used = None
 
-    def get_voisins(self, goal: 'Node', m: 'Model') -> List['Node']:
+    def get_voisins(self, goal: 'Node', m: 'Model', depth_max: int) -> List['Node']:
+        if depth_max != -1 and self.cout >= depth_max:
+            return []
         nodes = []
         for sort in self.get_possible_sorts():
             new_inventory = self.inventory.copy()
@@ -547,7 +557,7 @@ def compute_path_backward(current: Node) -> List[Sort]:
     return path
 
 
-def a_star(start: Node, end: Node, m: 'Model') -> List[Sort]:
+def a_star(start: Node, end: Node, m: 'Model', depth_max=-1) -> List[Sort]:
     opened = [start]
     closed = []
 
@@ -563,13 +573,18 @@ def a_star(start: Node, end: Node, m: 'Model') -> List[Sort]:
             path = compute_path_backward(current)
             return path
 
-        voisins = current.get_voisins(end, m)
+        voisins = current.get_voisins(end, m, depth_max)
 
         for voisin in voisins:
             if voisin not in closed:
                 opened = insert_in_opened(opened, voisin)
 
         closed.append(current)
+
+    if depth_max != -1 and closed != []:
+        best_depth = max([d.value for d in closed])
+        best_depth_max = [d for d in closed if d.value == best_depth]
+        return compute_path_backward(best_depth_max[0])
 
     if not time.time() - m.debut_time >= SEUIL_TIME:
         debug(f"Impossible de trouver un chemin de {start.inventory.inv} vers {end.inventory.inv} !")
@@ -606,13 +621,25 @@ def find_greedy_objectif(m: Model) -> Potion:
     sorted(m.potions, key=lambda p: p.distance_to_inventory(m.me.inventory))
     for potion in m.potions:
         potion.compute_path(m)
-    potion_scores = [p.get_score(m) for p in m.potions]
-    best_potion = m.potions[np.argmax([potion_scores])]
-    return best_potion
+    if m.nb_potions_to_craft > 1:
+        potion_scores = [p.get_score(m) for p in m.potions]
+        best_potion = m.potions[np.argmax([potion_scores])]
+        return best_potion
+    else:
+        potion_distance = min([p.get_distance() for p in m.potions if p.get_distance() != -1])
+        best_distance = [p for p in m.potions if p.get_distance() == potion_distance][0]
+        return best_distance
 
 
 def find_best_learn(m: 'Model') -> 'Learn':
     good_spells = [
+    np.array([-2, 2, 0, 0]),
+    np.array([0, -2, 2, 0]),
+    np.array([0, 0, -2, 2]),
+    np.array([-3, 3, 0, 0]),
+    np.array([0, -3, 3, 0]),
+    np.array([0, 0, -3, 3]),
+    np.array([-2, 0, 1, 0]),
     np.array([4, 0, 0, 0]),
     np.array([3, 0, 0, 0]),
     np.array([2, 1, 0, 0]),
@@ -626,9 +653,7 @@ def find_best_learn(m: 'Model') -> 'Learn':
     np.array([0, 0, 1, 0]),
     np.array([-3, 0, 0, 1]),
     np.array([2, -2, 0, 1]),
-    np.array([-2, 0, 1, 0]),
-    np.array([-2, 2, 0, 0]),
-    np.array([-4, 0, 2, 0]),
+    # np.array([-4, 0, 2, 0]),
     # np.array([2, 3, -2, 0]),
     # np.array([2, 1, -2, 1]),
     # np.array([3, -2, 1, 0]),
@@ -649,11 +674,6 @@ def find_best_learn(m: 'Model') -> 'Learn':
     # np.array([1, 1, 3, -2]),
     # np.array([-5, 0, 3, 0]),
     # np.array([-2, 0, -1, 2]),
-    # np.array([0, 0, -3, 3]),
-    # np.array([0, -3, 3, 0]),
-    # np.array([-3, 3, 0, 0]),
-    # np.array([0, 0, -2, 2]),
-    # np.array([0, -2, 2, 0]),
     # np.array([0, 0, 2, -1])
     ]
 
@@ -680,8 +700,27 @@ def act(retour: Retour, m: 'Model') -> 'Model':
     return m
 
 
+def go_for_value(m: 'Model') -> 'Retour':
+    if get_value_of_array(m.me.inventory.inv) >= STOP_VALUE_TRESHOLD or m.nb_potions_to_craft <= 1:
+        return None
+    end = Node(Inventory(np.array([10, 10, 10, 10])), [], learns=None, precedent=None, goal=None, sort_used=None, m=m)
+    start = Node(m.me.inventory, m.sorts + [ActionType.REST.value], learns=m.learns, precedent=None, goal=end,
+                 sort_used=None, m=m)
+    path = a_star(start, end, m, depth_max=5)
+    if path == None or path == []:
+        return None
+    else:
+        return Retour(path[-1], f"VALUE {path[-1]}")
+
+
 def think(m: 'Model') -> 'Retour':
+    retour = if_can_brew_brew(m)
+    if retour:
+        return retour
     retour = go_for_learn(m)
+    if retour:
+        return retour
+    retour = go_for_value(m)
     if retour:
         return retour
     retour = go_for_potion(m)
@@ -716,6 +755,16 @@ def go_for_learn(m: 'Model') -> 'Retour':
             return Retour(to_learn, f"LEARN SORT {to_learn} !")
         return Retour(path[-1], f"LEARNING ... {to_learn}")
     return None
+
+
+def if_can_brew_brew(m: Model) -> 'Retour':
+    brewables = [p for p in m.potions if p.is_brewable(m.me.inventory)]
+    if brewables == []:
+        return None
+    max_price = max([b.price for b in brewables])
+    max_brewables = [b for b in brewables if b.price == max_price]
+    best_brewable = max_brewables[0]
+    return Retour(best_brewable, f"INSTA_BUY {best_brewable}")
 
 
 def run():
