@@ -15,6 +15,7 @@ NB_LEARN_MAX = 10
 NB_SORTS_INITIAUX = 5  # Avec REST
 DECROISSANCE_SORTS = 1.2
 NB_POTIONS_CRAFTABLE_MAX = 6
+COEF_COUT_VS_REWARD = 2
 
 
 def debug(message: str, end="\n"):
@@ -131,7 +132,7 @@ class Sort:
         return self
 
     def get_estimated_gain(self, sort_indice: int, nb_potions_a_faire: int) -> float:
-        gain = np.sum((self.reward - self.cout) * np.array([1, 2, 3, 4]))
+        gain = np.sum((self.reward - self.cout * COEF_COUT_VS_REWARD) * np.array([1, 2, 3, 4]))
         return gain
         # if sort_indice > NB_POTIONS_CRAFTABLE_MAX:
         #     return 0
@@ -392,7 +393,7 @@ class Node:
             nodes.append(node)
 
         for learn in self.get_possible_learns():
-            if learn.get_estimated_gain(0, 0) >= 3:
+            if learn.get_estimated_gain(0, 0) >= 2:
                 new_inventory = self.inventory.copy()
                 new_inventory.update_inventory_with_learn(learn)
                 new_sorts = update_sorts_with_learn(self.sorts, learn)
