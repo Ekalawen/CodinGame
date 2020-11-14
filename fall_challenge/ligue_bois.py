@@ -24,10 +24,21 @@ from typing import List, Any, Tuple
 NB_GEMMES = 4
 MAX_NB_ITEMS = 10
 
+# READ_STDIN = True
+READ_STDIN = False
+
 
 def debug(message: str, end="\n"):
     print(message, file=sys.stderr, flush=True, end=end)
     # pass
+
+
+def read_input():
+    if READ_STDIN:
+        return input()
+    else:
+        sys.stdin = open('in.txt', 'r')
+        return input()
 
 
 class ActionType(Enum):
@@ -104,13 +115,15 @@ class Sort:
                and np.sum(inventory.inv - self.cout + self.reward) <= MAX_NB_ITEMS
 
     def get_used(self):
-        used_sort = Sort(self.id, self.type, 0, 0, 0, 0, self.price, self.tome_index, self.tax_count, False, self.repeatable)
+        used_sort = Sort(self.id, self.type, 0, 0, 0, 0, self.price, self.tome_index, self.tax_count, False,
+                         self.repeatable)
         used_sort.cout = self.cout
         used_sort.reward = self.reward
         return used_sort
 
     def copy(self) -> 'Sort':
-        sort_copied = Sort(self.id, self.type, 0, 0, 0, 0, self.price, self.tome_index, self.tax_count, self.castable, self.repeatable)
+        sort_copied = Sort(self.id, self.type, 0, 0, 0, 0, self.price, self.tome_index, self.tax_count, self.castable,
+                           self.repeatable)
         sort_copied.cout = self.cout
         sort_copied.reward = self.reward
         return sort_copied
@@ -120,73 +133,85 @@ class Sort:
         return self
 
 
-def update_sorts_with_sorts(sorts: List[Sort], path: List[Sort]) -> List[Sort]:
-    for p in path:
-        if p == ActionType.REST.value:
-            sorts = [s.rest() for s in sorts]
-        else:
-            sorts = [s if s.id != p.id else s.get_used() for s in sorts]
-    return sorts
+def update_sorts_with_sort(sorts: List[Sort], sort: Sort) -> List[Sort]:
+    new_sorts = [s.copy() for s in sorts]
+    if sort == ActionType.REST.value:
+        new_sorts = [s.rest() for s in new_sorts]
+    else:
+        new_sorts = [s if s.id != sort.id else s.get_used() for s in new_sorts]
+    return new_sorts
 
 
-class Gemme:
+# def update_sorts_with_sorts(sorts: List[Sort], path: List[Sort]) -> List[Sort]:
+#     new_sorts = [s.copy() for s in sorts]
+#     for p in path:
+#         if p == ActionType.REST.value:
+#             sorts = [s.rest() for s in sorts]
+#         else:
+#             sorts = [s if s.id != p.id else s.get_used() for s in sorts]
+#     return sorts
 
-    memo = {}
 
-    @classmethod
-    def how_to_get_to_gemmes(cls, inventory: Inventory, sorts: List[Sort], goal: np.array) -> List[Sort]:
-        diff = goal - inventory.inv
-        diff[diff < 0] = 0
-        if max(diff) == 0:
-            return []
-        debug(f"diff = {diff}")
-        total_path = []
-        for gemme_indice in reversed(range(NB_GEMMES)):
-            while diff[gemme_indice] > 0:
-                path = cls.how_to_add_gemme(inventory, sorts, gemme_indice)
-                if path is None:
-                    return None
-                total_path.extend(path)
-                sorts = update_sorts_with_sorts(sorts, path)
-                inventory.update_inventory_with_sorts(path)
-                diff = goal - inventory.inv
-                diff[diff < 0] = 0
-                debug(f"diff = {diff} inventory = {inventory.inv} goal = {goal}")
-        return total_path
-
-    @classmethod
-    def how_to_add_gemme(cls, inventory: Inventory, sorts: List[Sort], gemme_indice: int) -> List[Sort]:
-        debug(f"Adding {gemme_indice}")
-        sort_utiles = [s for s in sorts if s.reward[gemme_indice] > 0]
-        methods = []
-        for sort_utile in sort_utiles:
-            if sort_utile.is_castable(inventory):
-                return [sort_utile]
-            else:
-                needed_inventory = [max(i, c) for i, c in zip(inventory.inv, sort_utile.cout)]
-                if np.sum(needed_inventory) > MAX_NB_ITEMS:
-                    continue
-                path = cls.how_to_get_to_gemmes(inventory, sorts, needed_inventory)
-                if path is not None:
-                    remaining_sorts = update_sorts_with_sorts(sorts, path)
-                    sort_utile_remaining = [r for r in remaining_sorts if r != ActionType.REST.value and r.id == sort_utile.id][0]
-                    if not sort_utile_remaining.castable:
-                        path.append(ActionType.REST.value)
-                    methods.append(path)
-
-        if not methods:
-            return None
-
-        min_length = min([len(m) for m in methods])
-        min_methods = [m for m in methods if len(m) == min_length]
-        return min_methods[0]
+# class Gemme:
+#     memo = {}
+#
+#     @classmethod
+#     def how_to_get_to_gemmes(cls, inventory: Inventory, sorts: List[Sort], goal: np.array) -> List[Sort]:
+#         diff = goal - inventory.inv
+#         diff[diff < 0] = 0
+#         if max(diff) == 0:
+#             return []
+#         debug(f"diff = {diff}")
+#         total_path = []
+#         for gemme_indice in reversed(range(NB_GEMMES)):
+#             while diff[gemme_indice] > 0:
+#                 path = cls.how_to_add_gemme(inventory, sorts, gemme_indice)
+#                 if path is None:
+#                     return None
+#                 total_path.extend(path)
+#                 sorts = update_sorts_with_sorts(sorts, path)
+#                 inventory.update_inventory_with_sorts(path)
+#                 diff = goal - inventory.inv
+#                 diff[diff < 0] = 0
+#                 debug(f"diff = {diff} inventory = {inventory.inv} goal = {goal}")
+#         return total_path
+#
+#     @classmethod
+#     def how_to_add_gemme(cls, inventory: Inventory, sorts: List[Sort], gemme_indice: int) -> List[Sort]:
+#         debug(f"Adding {gemme_indice}")
+#         sort_utiles = [s for s in sorts if s.reward[gemme_indice] > 0]
+#         methods = []
+#         for sort_utile in sort_utiles:
+#             if sort_utile.is_castable(inventory):
+#                 return [sort_utile]
+#             else:
+#                 needed_inventory = [max(i, c) for i, c in zip(inventory.inv, sort_utile.cout)]
+#                 if np.sum(needed_inventory) > MAX_NB_ITEMS:
+#                     continue
+#                 path = cls.how_to_get_to_gemmes(inventory, sorts, needed_inventory)
+#                 if path is not None:
+#                     remaining_sorts = update_sorts_with_sorts(sorts, path)
+#                     sort_utile_remaining = \
+#                     [r for r in remaining_sorts if r != ActionType.REST.value and r.id == sort_utile.id][0]
+#                     if not sort_utile_remaining.castable:
+#                         path.append(ActionType.REST.value)
+#                     methods.append(path)
+#
+#         if not methods:
+#             return None
+#
+#         min_length = min([len(m) for m in methods])
+#         min_methods = [m for m in methods if len(m) == min_length]
+#         return min_methods[0]
 
 
 class Action:
     @staticmethod
     def read():
+        inp = input()
+        debug(f"{inp}")
         action_id, action_type, delta_0, delta_1, delta_2, delta_3, price, tome_index, tax_count, castable, repeatable \
-            = input().split()
+            = inp.split()
         action_id = int(action_id)
         delta_0 = int(delta_0)
         delta_1 = int(delta_1)
@@ -258,7 +283,9 @@ class Potion:
         return len(self.path)
 
     def compute_path(self, m: 'Model'):
-        self.path = Gemme.how_to_get_to_gemmes(inventory=m.me.inventory, sorts=m.sorts, goal=self.cout)
+        end = Node(Inventory(self.cout), [], precedent=None, goal=None, sort_used=None)
+        start = Node(m.me.inventory, m.sorts, precedent=None, goal=end, sort_used=None)
+        self.path = a_star(start, end)
 
 
 class Player:
@@ -305,6 +332,130 @@ def compute_best(potions: List[Potion], me: Player, opp: Player, nb_rounds_resta
     return best_potions[0]
 
 
+def compute_heuristique(n: 'Node', goal: 'Node') -> float:
+    total = 0
+    start = n.inventory.inv.copy()
+    to_do = goal.inventory.inv.copy()
+    for gemme_indice in reversed(range(NB_GEMMES)):
+        while start[gemme_indice] > 0 and sum(to_do[gemme_indice:]) > 0:
+            start[gemme_indice] -= 1
+            ind_to_do = np.argmax(to_do[gemme_indice:] > 0) + gemme_indice
+            to_do[ind_to_do] -= 1
+            total += gemme_indice + 1
+
+    total += 0.1 * len(n.sorts)
+    return total
+
+
+def is_rest_castable(sorts: List[Sort]) -> bool:
+    sorts_without_rest = [s for s in sorts if not isinstance(s, str)]
+    return not all([s.castable for s in sorts_without_rest])
+
+
+class Node:
+    def __init__(self,
+                 inventory: Inventory,
+                 sorts: List[Sort],
+                 precedent: 'Node',
+                 goal: 'Node',
+                 sort_used: Sort):
+        self.inventory = inventory
+        self.sorts = sorts
+        if precedent:
+            self.cout = precedent.cout + 1
+        else:
+            self.cout = 0
+        self.precedent = precedent
+        if goal:
+            self.heuristique = compute_heuristique(self, goal)
+            self.value = self.cout + self.heuristique
+            self.sort_used = sort_used
+        else:
+            self.heuristique = None
+            self.value = None
+            self.sort_used = None
+
+    def get_voisins(self, goal: 'Node') -> List['Node']:
+        nodes = []
+        for sort in self.get_possible_sorts():
+            new_inventory = self.inventory.copy()
+            new_inventory.update_inventory_with_sort(sort)
+            new_sorts = update_sorts_with_sort(self.sorts, sort)
+            node = Node(new_inventory, new_sorts, self, goal, sort)
+            nodes.append(node)
+        return nodes
+
+    def get_possible_sorts(self) -> List[Sort]:
+        sort_castables = []
+        for s in self.sorts:
+            if s == ActionType.REST.value:
+                if is_rest_castable(self.sorts):
+                    sort_castables.append(ActionType.REST.value)
+            elif s.is_castable(self.inventory):
+                sort_castables.append(s)
+        return sort_castables
+
+    def is_better_than(self, other: 'Node') -> bool:
+        return all(self.inventory.inv - other.inventory.inv >= 0)
+
+
+def insert_at_good_place(opened: List[Node], voisin: Node) -> List[Node]:
+    for i, o in enumerate(opened):
+        if o.value >= voisin.value:
+            opened.insert(i, voisin)
+            return opened
+    opened.append(voisin)
+    return opened
+
+
+def insert_in_opened(opened: List[Node], voisin: Node) -> List[Node]:
+    is_in_opened = False
+    for i, o in enumerate(opened):
+        if o == voisin:
+            if o.value < voisin.value:
+                opened[i] = voisin
+                is_in_opened = True
+            else:
+                break
+    if not is_in_opened:
+        opened = insert_at_good_place(opened, voisin)
+    return opened
+
+
+def compute_path_backward(current: Node) -> List[Sort]:
+    path = []
+    while current.precedent:
+        path.append(current.sort_used)
+        current = current.precedent
+    return path
+
+
+def a_star(start: Node, end: Node) -> List[Sort]:
+    opened = [start]
+    closed = []
+
+    while len(opened) > 0:
+        debug(f"opened_len = {len(opened)}")
+        current = opened[-1]
+        opened = opened[:-1]
+
+        if current.is_better_than(end):
+            path = compute_path_backward(current)
+            return path
+
+        voisins = current.get_voisins(end)
+        debug(f"voisins_len = {len(voisins)}")
+
+        for voisin in voisins:
+            if voisin not in closed:
+                opened = insert_in_opened(opened, voisin)
+
+        closed.append(current)
+
+    debug(f"Impossible de trouver un chemin de {start.inventory.inv} vers {end.inventory.inv} !")
+    return None
+
+
 class Model:
     def __init__(self, potions: List[Potion], sorts: List[Sort], opp_sorts: List[Sort], me: Player, opp: Player):
         self.potions = potions
@@ -316,6 +467,7 @@ class Model:
     @staticmethod
     def read():
         nb_objects = int(input())
+        debug(f"{nb_objects}")
         actions = [Action.read() for _ in range(nb_objects)]
         potions = [a for a in actions if a.type == ActionType.POTION.value]
         sorts = [a for a in actions if a.type == ActionType.SORT.value]
@@ -363,8 +515,6 @@ def run():
 
 if __name__ == '__main__':
     run()
-
-
 
     # @classmethod
     # def how_to_get_to_gemmes(cls, inventory: Inventory, sorts: List[Sort], goal: np.array) -> List[Sort]:
