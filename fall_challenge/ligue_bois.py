@@ -9,13 +9,15 @@ from typing import List, Any
 NB_GEMMES = 4
 MAX_NB_ITEMS = 10
 SEUIL_TIME = 0.042
-NB_LEARN_MAX = 15
 NB_SORTS_INITIAUX = 5  # Avec REST
 DECROISSANCE_SORTS = 1.2
 NB_POTIONS_CRAFTABLE_MAX = 6
 COEF_COUT_VS_REWARD = 2
 STOP_VALUE_TRESHOLD = 15
 NB_SPELLS_CATEGORY = 5
+NB_SPELLS_BY_CATEGORY = 2
+NB_LEARN_MAX = 4 + 2 + NB_SPELLS_BY_CATEGORY * NB_SPELLS_CATEGORY
+# NB_LEARN_MAX = 13
 
 
 def debug(message: str, end="\n"):
@@ -311,6 +313,12 @@ class Sort:
         self.multiplicity = nb_times
         self.cout = self.cout * nb_times
         self.reward = self.reward * nb_times
+
+    def is_in_list(self, list: List['np.array']) -> bool:
+        for l in list:
+            if all(self.reward - self.cout - l == 0):
+                return True
+        return False
 
 
 class Learn(Sort):
@@ -743,38 +751,31 @@ def find_greedy_objectif(m: Model) -> Potion:
 
 
 def get_nb_needed_spells(m: 'Model') -> int:
-    nb = NB_SPELLS_CATEGORY
+    nb = NB_SPELLS_CATEGORY * NB_SPELLS_BY_CATEGORY
     for list in ALL_SPELL_LISTS:
-        for s in m.sorts:
-            s_in_list = False
-            for l in list:
-                if all(s.reward - s.cout - l == 0):
-                    s_in_list = True
-                    break
-            if s_in_list:
-                nb -= 1
-                break
+        is_in_list = np.array([s.is_in_list(list) for s in m.sorts])
+        nb_sorts_in = np.sum(is_in_list[is_in_list == True])
+        nb -= min(nb_sorts_in, NB_SPELLS_BY_CATEGORY)
     return nb
 
 
 def needed_spells(m: 'Model') -> List['np.array']:
-    spell_lists = []
+    spell_lists = SPELLS_0
     for list in ALL_SPELL_LISTS:
-        s_in_this_list = False
-        for s in m.sorts:
-            for l in list:
-                if all(s.reward - s.cout - l == 0):
-                    s_in_this_list = True
-                    break
-            if s_in_this_list:
-                break
-        if not s_in_this_list:
+        is_in_list = np.array([s.is_in_list(list) for s in m.sorts])
+        nb_sorts_in = np.sum(is_in_list[is_in_list == True])
+        if nb_sorts_in < NB_SPELLS_BY_CATEGORY:
             spell_lists.extend(list)
     return spell_lists
 
 
+def get_first_learn(m: 'Model') -> 'Learn':
+    return m.learns[0]
+
+
 def find_best_learn(m: 'Model') -> 'Learn':
     spells_to_look_at = needed_spells(m)
+    debug(f"needed_spells = {spells_to_look_at}")
 
     for learn in m.learns:
         for s in spells_to_look_at:
@@ -845,9 +846,12 @@ def go_for_learn(m: 'Model') -> 'Retour':
     debug(f"GO FOR LEARN")
     nb_needed = get_nb_needed_spells(m)
     debug(f"Nb needed spells = {nb_needed}")
-    if nb_needed == 0:
+    if nb_needed <= NB_SPELLS_BY_CATEGORY or len(m.sorts) >= NB_LEARN_MAX:
         return None
+    # if len(m.sorts) >= NB_LEARN_MAX:
+    #     return None
     to_learn = find_best_learn(m)
+    # to_learn = get_first_learn(m)
     if to_learn:
         debug(f"Want to learn this {to_learn}")
         end = Node(Inventory(to_learn.achat_cout), [], learns=None, precedent=None, goal=None, sort_used=None, m=m)
@@ -858,7 +862,7 @@ def go_for_learn(m: 'Model') -> 'Retour':
             debug(f"Did not find a path to this {to_learn}")
             return None
         if path == []:
-            m.sorts.append(to_learn)
+            m.sorts.append(to_learn.get_sort())
             debug(f"NOW WE HAVE {get_nb_needed_spells(m)} needed spells !")
             return Retour(to_learn, f"LEARN SORT {to_learn} !")
         debug(f"path to learn = {path}")
