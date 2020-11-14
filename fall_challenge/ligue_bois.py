@@ -15,6 +15,7 @@ DECROISSANCE_SORTS = 1.2
 NB_POTIONS_CRAFTABLE_MAX = 6
 COEF_COUT_VS_REWARD = 2
 STOP_VALUE_TRESHOLD = 15
+NB_SPELLS_CATEGORY = 5
 
 
 def debug(message: str, end="\n"):
@@ -35,6 +36,117 @@ class ActionType(Enum):
     WAIT = "WAIT"
 
 
+ALL_SPELLS = [
+    np.array([-2, 2, 0, 0]),
+    np.array([0, -2, 2, 0]),
+    np.array([0, 0, -2, 2]),
+    np.array([-3, 3, 0, 0]),
+    np.array([0, -3, 3, 0]),
+    np.array([0, 0, -3, 3]),
+    np.array([-2, 0, 1, 0]),
+    np.array([4, 0, 0, 0]),
+    np.array([3, 0, 0, 0]),
+    np.array([2, 1, 0, 0]),
+    np.array([0, 2, 0, 0]),
+    np.array([1, 0, 1, 0]),
+    np.array([1, 1, 0, 0]),
+    np.array([3, -1, 0, 0]),
+    np.array([4, 1, -1, 0]),
+    np.array([3, 0, 1, -1]),
+    np.array([0, 0, 0, 1]),
+    np.array([0, 0, 1, 0]),
+    np.array([-3, 0, 0, 1]),
+    np.array([2, -2, 0, 1]),
+    np.array([-4, 0, 2, 0]),
+    np.array([2, 3, -2, 0]),
+    np.array([2, 1, -2, 1]),
+    np.array([3, -2, 1, 0]),
+    np.array([2, -3, 2, 0]),
+    np.array([2, 2, 0, -1]),
+    np.array([-1, 0, -1, 1]),
+    np.array([0, 2, -1, 0]),
+    np.array([-3, 1, 1, 0]),
+    np.array([0, 2, -2, 1]),
+    np.array([1, -3, 1, 1]),
+    np.array([0, 3, 0, -1]),
+    np.array([0, -3, 0, 2]),
+    np.array([1, 1, 1, -1]),
+    np.array([1, 2, -1, 0]),
+    np.array([-5, 0, 0, 2]),
+    np.array([-4, 0, 1, 1]),
+    np.array([0, 3, 2, -2]),
+    np.array([1, 1, 3, -2]),
+    np.array([-5, 0, 3, 0]),
+    np.array([-2, 0, -1, 2]),
+    np.array([0, 0, 2, -1])
+]
+
+SPELLS_0 = [
+    np.array([0, 0, 0, 1]),
+    np.array([0, 0, 1, 0]),
+]
+
+SPELLS_1 = [
+    np.array([4, 0, 0, 0]),
+    np.array([3, 0, 0, 0]),
+    np.array([2, 1, 0, 0]),
+    np.array([1, 0, 1, 0]),
+    np.array([1, 1, 0, 0]),
+    np.array([0, 2, 0, 0]),
+]
+
+SPELLS_1_BIS = [
+    np.array([3, -1, 0, 0]),
+    np.array([4, 1, -1, 0]),
+    np.array([3, 0, 1, -1]),
+    np.array([3, -2, 1, 0]),
+    np.array([2, 1, -2, 1]),
+    np.array([2, -3, 2, 0]),
+]
+SPELLS_2 = [
+    np.array([-2, 2, 0, 0]),
+    np.array([-3, 3, 0, 0]),
+    np.array([2, 3, -2, 0]),
+    np.array([2, 2, 0, -1]),
+    np.array([0, 2, -1, 0]),
+    np.array([-3, 1, 1, 0]),
+    np.array([0, 3, 0, -1]),
+    np.array([1, 1, 1, -1]),
+    np.array([1, 2, -1, 0]),
+]
+
+SPELLS_3 = [
+    np.array([0, -2, 2, 0]),
+    np.array([0, -3, 3, 0]),
+    np.array([-2, 0, 1, 0]),
+    np.array([-4, 0, 2, 0]),
+    np.array([-3, 1, 1, 0]),
+    np.array([0, 3, 2, -2]),
+    np.array([-5, 0, 3, 0]),
+]
+
+SPELLS_4 = [
+    np.array([0, 0, -2, 2]),
+    np.array([0, 0, -3, 3]),
+    np.array([-3, 0, 0, 1]),
+    np.array([2, -2, 0, 1]),
+    np.array([-1, 0, -1, 1]),
+    np.array([0, 2, -2, 1]),
+    np.array([0, -3, 0, 2]),
+    np.array([-5, 0, 0, 2]),
+    np.array([-4, 0, 1, 1]),
+    np.array([-2, 0, -1, 2]),
+]
+
+ALL_SPELL_LISTS = [
+    SPELLS_1,
+    SPELLS_1_BIS,
+    SPELLS_2,
+    SPELLS_3,
+    SPELLS_4,
+]
+
+
 class Retour:
     def __init__(self, action: Any, intent: str):
         self.action = action
@@ -43,14 +155,19 @@ class Retour:
     def apply(self):
         if self.action == ActionType.REST.value:
             print(f"REST {self.intent}")
+            debug(f"ACT = REST {self.intent}")
         elif self.action.type == ActionType.WAIT.value:
             print(f"WAIT {self.intent}")
+            debug(f"ACT = WAIT {self.intent}")
         elif self.action.type == ActionType.SORT.value:
             print(f"CAST {self.action.id} {self.action.multiplicity} MUL={self.action.multiplicity} {self.intent}")
+            debug(f"ACT = CAST {self.action.id} {self.action.multiplicity} MUL={self.action.multiplicity} {self.intent}")
         elif self.action.type == ActionType.POTION.value:
             print(f"BREW {self.action.id} {self.intent}")
+            debug(f"ACT = BREW {self.action.id} {self.intent}")
         elif self.action.type == ActionType.LEARN.value:
             print(f"LEARN {self.action.id} {self.intent}")
+            debug(f"ACT = LEARN {self.action.id} {self.intent}")
         else:
             debug(f"Don't know this action : {self.action} with intent {self.intent} !")
 
@@ -189,16 +306,6 @@ class Sort:
     def get_estimated_gain(self, sort_indice: int, nb_potions_a_faire: int) -> float:
         gain = np.sum((self.reward - self.cout * COEF_COUT_VS_REWARD) * np.array([1, 2, 3, 4]))
         return gain
-        # if sort_indice > NB_POTIONS_CRAFTABLE_MAX:
-        #     return 0
-        # gain = np.sum((self.reward - self.cout) * np.array([1, 2, 3, 4]))
-        # if sort_indice >= NB_SORTS_INITIAUX:
-        #     denom = math.pow(sort_indice + 1 - NB_SORTS_INITIAUX, DECROISSANCE_SORTS)
-        #     num = (nb_potions_a_faire / NB_POTIONS_CRAFTABLE_MAX)
-        #     coef = num / denom
-        #     # debug(f"indice = {sort_indice} nb_potions_a_faire = {nb_potions_a_faire} num = {num} denom = {denom} coef = {coef}")
-        #     gain *= coef
-        # return gain
 
     def set_multiplicity(self, nb_times: int):
         self.multiplicity = nb_times
@@ -635,58 +742,45 @@ def find_greedy_objectif(m: Model) -> Potion:
             return None
 
 
-def find_best_learn(m: 'Model') -> 'Learn':
-    good_spells = [
-    np.array([-2, 2, 0, 0]),
-    np.array([0, -2, 2, 0]),
-    np.array([0, 0, -2, 2]),
-    np.array([-3, 3, 0, 0]),
-    np.array([0, -3, 3, 0]),
-    np.array([0, 0, -3, 3]),
-    np.array([-2, 0, 1, 0]),
-    np.array([4, 0, 0, 0]),
-    np.array([3, 0, 0, 0]),
-    np.array([2, 1, 0, 0]),
-    np.array([0, 2, 0, 0]),
-    np.array([1, 0, 1, 0]),
-    np.array([1, 1, 0, 0]),
-    np.array([3, -1, 0, 0]),
-    np.array([4, 1, -1, 0]),
-    np.array([3, 0, 1, -1]),
-    np.array([0, 0, 0, 1]),
-    np.array([0, 0, 1, 0]),
-    np.array([-3, 0, 0, 1]),
-    np.array([2, -2, 0, 1]),
-    # np.array([-4, 0, 2, 0]),
-    # np.array([2, 3, -2, 0]),
-    # np.array([2, 1, -2, 1]),
-    # np.array([3, -2, 1, 0]),
-    # np.array([2, -3, 2, 0]),
-    # np.array([2, 2, 0, -1]),
-    # np.array([-1, 0, -1, 1]),
-    # np.array([0, 2, -1, 0]),
-    # np.array([-3, 1, 1, 0]),
-    # np.array([0, 2, -2, 1]),
-    # np.array([1, -3, 1, 1]),
-    # np.array([0, 3, 0, -1]),
-    # np.array([0, -3, 0, 2]),
-    # np.array([1, 1, 1, -1]),
-    # np.array([1, 2, -1, 0]),
-    # np.array([-5, 0, 0, 2]),
-    # np.array([-4, 0, 1, 1]),
-    # np.array([0, 3, 2, -2]),
-    # np.array([1, 1, 3, -2]),
-    # np.array([-5, 0, 3, 0]),
-    # np.array([-2, 0, -1, 2]),
-    # np.array([0, 0, 2, -1])
-    ]
+def get_nb_needed_spells(m: 'Model') -> int:
+    nb = NB_SPELLS_CATEGORY
+    for list in ALL_SPELL_LISTS:
+        for s in m.sorts:
+            s_in_list = False
+            for l in list:
+                if all(s.reward - s.cout - l == 0):
+                    s_in_list = True
+                    break
+            if s_in_list:
+                nb -= 1
+                break
+    return nb
 
-    # for good_spell in good_spells:
-    #     for learn in m.learns:
-    #         if all(good_spell - (learn.reward - learn.cout) == 0):
-    #             return learn
-    # return None
-    return m.learns[0]
+
+def needed_spells(m: 'Model') -> List['np.array']:
+    spell_lists = []
+    for list in ALL_SPELL_LISTS:
+        s_in_this_list = False
+        for s in m.sorts:
+            for l in list:
+                if all(s.reward - s.cout - l == 0):
+                    s_in_this_list = True
+                    break
+            if s_in_this_list:
+                break
+        if not s_in_this_list:
+            spell_lists.extend(list)
+    return spell_lists
+
+
+def find_best_learn(m: 'Model') -> 'Learn':
+    spells_to_look_at = needed_spells(m)
+
+    for learn in m.learns:
+        for s in spells_to_look_at:
+            if all(learn.reward - learn.cout - s == 0):
+                return learn
+    return None
 
 
 def apply_simple_algorithm(m: 'Model'):
@@ -706,7 +800,7 @@ def act(retour: Retour, m: 'Model') -> 'Model':
 
 
 def go_for_value(m: 'Model') -> 'Retour':
-    debug(f"GO FOR VALUE\n")
+    debug(f"GO FOR VALUE")
     if get_value_of_array(m.me.inventory.inv) >= STOP_VALUE_TRESHOLD or m.nb_potions_to_craft <= 1:
         return None
     end = Node(Inventory(np.array([10, 10, 10, 10])), [], learns=None, precedent=None, goal=None, sort_used=None, m=m)
@@ -737,7 +831,7 @@ def go_for_potion(m: Model) -> 'Retour':
     debug(f"GO FOR POTION")
     potion_objectif = find_greedy_objectif(m)
     print(f"potion_objectif = (id={potion_objectif.id}, len={potion_objectif.get_distance()}, "
-          f"score={potion_objectif.get_score( m)})", file=sys.stderr, flush=True)
+          f"score={potion_objectif.get_score(m)})", file=sys.stderr, flush=True)
     retour = potion_objectif.get_first_retour()
     if retour != None:
         if isinstance(retour.action, Learn):
@@ -748,25 +842,33 @@ def go_for_potion(m: Model) -> 'Retour':
 
 
 def go_for_learn(m: 'Model') -> 'Retour':
-    debug(f"GO FOR LEARN\n")
-    if len(m.sorts) >= NB_LEARN_MAX:
+    debug(f"GO FOR LEARN")
+    nb_needed = get_nb_needed_spells(m)
+    debug(f"Nb needed spells = {nb_needed}")
+    if nb_needed == 0:
         return None
     to_learn = find_best_learn(m)
     if to_learn:
+        debug(f"Want to learn this {to_learn}")
         end = Node(Inventory(to_learn.achat_cout), [], learns=None, precedent=None, goal=None, sort_used=None, m=m)
         start = Node(m.me.inventory, m.sorts + [ActionType.REST.value], learns=m.learns, precedent=None, goal=end,
                      sort_used=None, m=m)
         path = a_star(start, end, m)
         if path == None:
+            debug(f"Did not find a path to this {to_learn}")
             return None
         if path == []:
+            m.sorts.append(to_learn)
+            debug(f"NOW WE HAVE {get_nb_needed_spells(m)} needed spells !")
             return Retour(to_learn, f"LEARN SORT {to_learn} !")
+        debug(f"path to learn = {path}")
         return Retour(path[-1], f"LEARNING ... {to_learn}")
+    debug(f"Need to learn, but don't know what to learn ! :'(")
     return None
 
 
 def if_can_brew_brew(m: Model) -> 'Retour':
-    debug(f"IF CAN BREW POTION\n")
+    debug(f"IF CAN BREW POTION")
     brewables = [p for p in m.potions if p.is_brewable(m.me.inventory)]
     if brewables == []:
         return None
