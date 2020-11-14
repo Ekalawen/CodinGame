@@ -1,3 +1,4 @@
+import os
 import sys
 import time
 from dataclasses import dataclass, replace
@@ -6,11 +7,9 @@ from enum import Enum
 import numpy as np
 from typing import List, Tuple
 
-READ_STDIN = True
-# READ_STDIN = False
-
 NB_GEMMES = 4
 MAX_NB_ITEMS = 10
+SEUIL_TIME = 0.045
 
 
 def debug(message: str, end="\n"):
@@ -27,6 +26,7 @@ class ActionType(Enum):
     SORT_OPPONENT = "OPPONENT_CAST"
     POTION = "BREW"
     REST = "REST"
+    LEARN = "LEARN"
 
 
 class Inventory:
@@ -120,6 +120,10 @@ class Sort:
         return self
 
 
+class Learn(Sort):
+    pass
+
+
 def update_sorts_with_sort(sorts: List[Sort], sort: Sort) -> List[Sort]:
     new_sorts = [s.copy() if not isinstance(s, str) else s for s in sorts]
     if sort == ActionType.REST.value:
@@ -146,14 +150,17 @@ class Action:
         tax_count = int(tax_count)
         castable = castable != "0"
         repeatable = repeatable != "0"
-        if action_type == "BREW":
+        if action_type == ActionType.POTION.value:
             return Potion(action_id, action_type, delta_0, delta_1, delta_2, delta_3, price, tome_index, tax_count,
                           castable, repeatable)
-        elif action_type == "CAST":
+        elif action_type == ActionType.SORT.value:
             return Sort(action_id, action_type, delta_0, delta_1, delta_2, delta_3, price, tome_index, tax_count,
                         castable, repeatable)
-        elif action_type == "OPPONENT_CAST":
+        elif action_type == ActionType.SORT_OPPONENT.value:
             return Sort(action_id, action_type, delta_0, delta_1, delta_2, delta_3, price, tome_index, tax_count,
+                        castable, repeatable)
+        elif action_type == ActionType.LEARN.value:
+            return Learn(action_id, action_type, delta_0, delta_1, delta_2, delta_3, price, tome_index, tax_count,
                         castable, repeatable)
 
 
@@ -202,7 +209,7 @@ class Potion:
         difficulty = self.difficulty_to_get(m)
         if difficulty is None:
             return -1
-        return self.price / (difficulty + 1)
+        return self.get_price() / (difficulty + 1)
 
     def difficulty_to_get(self, m: 'Model') -> int:
         if not self.path:
@@ -214,13 +221,16 @@ class Potion:
     def compute_path(self, m: 'Model'):
         end = Node(Inventory(self.cout), [], precedent=None, goal=None, sort_used=None)
         start = Node(m.me.inventory, m.sorts + [ActionType.REST.value], precedent=None, goal=end, sort_used=None)
-        self.path = a_star(start, end)
+        self.path = a_star(start, end, m.debut_time)
 
     def __repr__(self):
         return self.__str__()
 
     def __str__(self):
-        return f"Potion({str(self.cout)}({self.price}))"
+        return f"Potion({str(self.cout)}({self.get_price()}))"
+
+    def get_price(self) -> float:
+        return self.price
 
 
 class Player:
@@ -235,7 +245,7 @@ class Player:
         new_player = Player(self.inventory.inv[0], self.inventory.inv[1], self.inventory.inv[2], self.inventory.inv[3],
                             self.score)
         new_player.inventory -= potion.cout
-        new_player.score += potion.price
+        new_player.score += potion.get_price()
         return new_player
 
     @staticmethod
@@ -243,30 +253,6 @@ class Player:
         inp = read_input()
         debug(f"{inp}")
         return Player(*[int(i) for i in inp.split()])
-
-
-def best_fit(potions: List[Potion], me: Player, quantity: int) -> Tuple[List[Potion], Player]:
-    if quantity == 1:
-        best_potion = potions[np.array([c.price for c in potions if me.can_buy(c)]).argmax()]
-        new_player = me.buy(best_potion)
-        return [best_potion], new_player
-
-    best_potions, best_player = None, None
-    for potion in potions:
-        new_player = me.buy(potion)
-        new_potions = potions
-        new_potions.remove(potion)
-        res_potions, res_player = best_fit(new_potions, new_player, quantity - 1)
-        res_potions.append(potion)
-        if not best_player or res_player.score > best_player.score:
-            best_potions = res_potions
-            best_player = res_player
-    return best_potions, best_player
-
-
-def compute_best(potions: List[Potion], me: Player, opp: Player, nb_rounds_restant: int) -> Potion:
-    best_potions, best_player = best_fit(potions, me, nb_rounds_restant)
-    return best_potions[0]
 
 
 def compute_heuristique(n: 'Node', goal: 'Node') -> float:
@@ -280,7 +266,8 @@ def compute_heuristique(n: 'Node', goal: 'Node') -> float:
             to_do[ind_to_do] -= 1
             total += gemme_indice + 1
 
-    total += 0.1 * len(n.sorts)
+    total += 0.01 * len(n.sorts)
+    total += 0.001 * len([s for s in n.sorts if isinstance(s, str) or s.castable])
     return total
 
 
@@ -373,11 +360,14 @@ def compute_path_backward(current: Node) -> List[Sort]:
     return path
 
 
-def a_star(start: Node, end: Node) -> List[Sort]:
+def a_star(start: Node, end: Node, debut_time: float) -> List[Sort]:
     opened = [start]
     closed = []
 
     while len(opened) > 0:
+        if time.time() - debut_time >= SEUIL_TIME:
+            break
+
         current = opened[-1]
         opened = opened[:-1]
 
@@ -404,6 +394,7 @@ class Model:
         self.opp_sorts = opp_sorts
         self.me = me
         self.opp = opp
+        self.debut_time = 0
 
     @staticmethod
     def read():
@@ -432,25 +423,25 @@ def run():
     while True:
         m = Model.read()
 
-        debut = time.time()
+        m.debut_time = time.time()
         potion_objectif = find_greedy_objectif(m)
-        print(f"round = {current_round} (time={(time.time() - debut)*1000})", file=sys.stderr, flush=True)
+        print(f"round = {current_round} (time={(time.time() - m.debut_time) * 1000})", file=sys.stderr, flush=True)
 
         print(f"potion_objectif = ({potion_objectif.id})={potion_objectif.path}", file=sys.stderr, flush=True)
 
         if potion_objectif.path:
             if potion_objectif.path[-1] == ActionType.REST.value:
-                print(f"{ActionType.REST.value}")
+                print(f"{ActionType.REST.value} ==> {potion_objectif}")
             else:
-                print(f"{ActionType.SORT.value} {potion_objectif.path[-1].id}")
+                print(f"{ActionType.SORT.value} {potion_objectif.path[-1].id} ==> {potion_objectif}")
             potion_objectif.path = potion_objectif.path[:-1]
         else:
-            print(f"{ActionType.POTION.value} {potion_objectif.id}")
+            print(f"{ActionType.POTION.value} {potion_objectif.id} {potion_objectif} !!! :D")
 
         current_round += 1
 
 
 if __name__ == '__main__':
-    if not READ_STDIN:
+    if os.path.exists('in.txt'):
         sys.stdin = open('in.txt', 'r', newline='\n')
     run()
