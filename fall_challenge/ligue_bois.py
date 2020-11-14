@@ -1,17 +1,15 @@
 import os
 import sys
 import time
-from dataclasses import dataclass, replace
 from enum import Enum
 
-import math
 import numpy as np
-from typing import List, Tuple, Any
+from typing import List, Any
 
 NB_GEMMES = 4
 MAX_NB_ITEMS = 10
 SEUIL_TIME = 0.042
-NB_LEARN_MAX = 10
+NB_LEARN_MAX = 12
 NB_SORTS_INITIAUX = 5  # Avec REST
 DECROISSANCE_SORTS = 1.2
 NB_POTIONS_CRAFTABLE_MAX = 6
@@ -37,31 +35,38 @@ class ActionType(Enum):
 
 
 class Retour:
-    def __init__(self, action_type: ActionType, action_id: int, intent: str):
-        self.action_type = action_type
-        self.aciton_id = action_id
+    def __init__(self, action: Any, intent: str):
+        self.action = action
         self.intent = intent
 
     def apply(self):
-        if self.action_type == ActionType.REST or self.action_type == ActionType.WAIT:
-            print(f"{self.action_type.value} {self.intent}")
+        if self.action == ActionType.REST.value:
+            print(f"REST {self.intent}")
+        elif self.action.type == ActionType.WAIT.value:
+            print(f"WAIT {self.intent}")
+        elif self.action.type == ActionType.SORT.value:
+            print(f"CAST {self.action.id} {self.action.multiplicity} MUL={self.action.multiplicity} {self.intent}")
+        elif self.action.type == ActionType.POTION.value:
+            print(f"BREW {self.action.id} {self.intent}")
+        elif self.action.type == ActionType.LEARN.value:
+            print(f"LEARN {self.action.id} {self.intent}")
         else:
-            print(f"{self.action_type.value} {self.aciton_id} {self.intent}")
+            debug(f"Don't know this action : {self.action} with intent {self.intent} !")
 
     @classmethod
     def construct(cls, something: Any, intent=None):
         if isinstance(something, str):
             intent = intent or "REST"
-            return Retour(ActionType.REST, 0, intent)
+            return Retour(ActionType.REST.value, intent)
         elif isinstance(something, Learn):
             intent = intent or f"LEARN {something}"
-            return Retour(ActionType.LEARN, something.id, intent)
+            return Retour(something, intent)
         elif isinstance(something, Sort):
             intent = intent or f"{something}"
-            return Retour(ActionType.SORT, something.id, intent)
+            return Retour(something, intent)
         elif isinstance(something, Potion):
             intent = intent or f"BREW {something}"
-            return Retour(ActionType.POTION, something.id, intent)
+            return Retour(something, intent)
         else:
             debug(f"construct bizarre dans Retour : {something}")
             return None
@@ -92,6 +97,9 @@ class Inventory:
     def get_nb_items(self) -> int:
         return np.sum(self.inv)
 
+    def get_nb_empty_spaces(self) -> int:
+        return MAX_NB_ITEMS - np.sum(self.inv)
+
     def is_full(self) -> bool:
         return self.get_nb_items() >= MAX_NB_ITEMS
 
@@ -105,7 +113,6 @@ class Inventory:
         return f"{self.inv}"
 
 
-@dataclass
 class Sort:
     def __init__(self,
                  id: int,
@@ -133,6 +140,8 @@ class Sort:
         self.cout[self.cout > 0] = 0
         self.cout = - self.cout
 
+        self.multiplicity = 1
+
     def __repr__(self):
         return self.__str__()
 
@@ -143,6 +152,16 @@ class Sort:
         return self.castable \
                and all(inventory.inv - self.cout >= 0) \
                and np.sum(inventory.inv - self.cout + self.reward) <= MAX_NB_ITEMS
+
+    def how_many_times_castable(self, inventory: Inventory) -> int:
+        if not self.repeatable:
+            return 1 if self.is_castable(inventory) else 0
+        inv_copy = inventory.copy()
+        for i in range(0, 10):
+            if self.is_castable(inv_copy):
+                inv_copy.update_inventory_with_sort(self)
+            else:
+                return i
 
     def get_used(self):
         used_sort = Sort(self.id, self.type, 0, 0, 0, 0, self.price, self.tome_index, self.tax_count, False,
@@ -176,6 +195,11 @@ class Sort:
         #     gain *= coef
         # return gain
 
+    def set_multiplicity(self, nb_times: int):
+        self.multiplicity = nb_times
+        self.cout = self.cout * nb_times
+        self.reward = self.reward * nb_times
+
 
 class Learn(Sort):
     def __init__(self,
@@ -203,6 +227,18 @@ class Learn(Sort):
         sort.cout = self.cout
         sort.reward = self.reward
         return sort
+
+    def rentability_on_buy(self, inventory: Inventory) -> int:
+        if not self.is_buyable(inventory):
+            return 0
+        benef = self.tax_count - self.tome_index
+        benef = min(benef, inventory.get_nb_empty_spaces())
+        return benef
+
+    def is_rentable_on_buy(self, inventory: Inventory) -> bool:
+        if not self.is_buyable(inventory):
+            return False
+        return self.rentability_on_buy(inventory) > 0
 
 
 def update_sorts_with_sort(sorts: List[Sort], sort: Sort) -> List[Sort]:
@@ -330,7 +366,7 @@ class Potion:
 
     def get_first_retour(self) -> 'Retour':
         if self.path == []:
-            return Retour.construct(self, f"BREW POTION {self}")
+            return Retour(self, f"BREW POTION {self}")
         if self.path == None:
             return None
         return Retour.construct(self.path[-1])
@@ -436,14 +472,16 @@ class Node:
             node = Node(new_inventory, new_sorts, self.learns, self, goal, sort, m)
             nodes.append(node)
 
-        # for learn in self.get_possible_learns():
-        #     if learn.get_estimated_gain(0, 0) >= 2:
-        #         new_inventory = self.inventory.copy()
-        #         new_inventory.update_inventory_with_learn(learn)
-        #         new_sorts = update_sorts_with_learn(self.sorts, learn)
-        #         new_learns = update_learns_with_learn(self.learns, learn)
-        #         node = Node(new_inventory, new_sorts, new_learns, self, goal, learn, m)
-        #         nodes.append(node)
+        usefull_learn = self.get_possible_learns()
+        usefull_learn = [l for l in usefull_learn if l.rentability_on_buy(self.inventory) >= 2]
+        sorted(usefull_learn, key=lambda l: -l.rentability_on_buy(self.inventory))
+        for learn in usefull_learn:
+            new_inventory = self.inventory.copy()
+            new_inventory.update_inventory_with_learn(learn)
+            new_sorts = update_sorts_with_learn(self.sorts, learn)
+            new_learns = update_learns_with_learn(self.learns, learn)
+            node = Node(new_inventory, new_sorts, new_learns, self, goal, learn, m)
+            nodes.append(node)
 
         return nodes
 
@@ -453,8 +491,12 @@ class Node:
             if s == ActionType.REST.value:
                 if is_rest_castable(self.sorts):
                     sort_castables.append(ActionType.REST.value)
-            elif s.is_castable(self.inventory):
-                sort_castables.append(s)
+            else:
+                nb_casts_max = s.how_many_times_castable(self.inventory)
+                for i in reversed(range(1, nb_casts_max + 1)):
+                    sort_with_multiplicity = s.copy()
+                    sort_with_multiplicity.set_multiplicity(i)
+                    sort_castables.append(sort_with_multiplicity)
         return sort_castables
 
     def get_possible_learns(self) -> List[Learn]:
@@ -511,6 +553,7 @@ def a_star(start: Node, end: Node, m: 'Model') -> List[Sort]:
 
     while len(opened) > 0:
         if time.time() - m.debut_time >= SEUIL_TIME:
+            debug(f"Out of time !")
             break
 
         current = opened[-1]
@@ -528,7 +571,8 @@ def a_star(start: Node, end: Node, m: 'Model') -> List[Sort]:
 
         closed.append(current)
 
-    debug(f"Impossible de trouver un chemin de {start.inventory.inv} vers {end.inventory.inv} !")
+    if not time.time() - m.debut_time >= SEUIL_TIME:
+        debug(f"Impossible de trouver un chemin de {start.inventory.inv} vers {end.inventory.inv} !")
     return None
 
 
@@ -562,7 +606,6 @@ def find_greedy_objectif(m: Model) -> Potion:
     sorted(m.potions, key=lambda p: p.distance_to_inventory(m.me.inventory))
     for potion in m.potions:
         potion.compute_path(m)
-        debug(f"{potion} dist = {potion.get_distance()} score = {potion.get_score(m)}")
     potion_scores = [p.get_score(m) for p in m.potions]
     best_potion = m.potions[np.argmax([potion_scores])]
     return best_potion
@@ -570,23 +613,24 @@ def find_greedy_objectif(m: Model) -> Potion:
 
 def find_best_learn(m: 'Model') -> 'Learn':
     good_spells = [
-    np.array([1, 0, 1, 0]),
-    np.array([0, 0, 0, 1]),
-    np.array([0, 2, 0, 0]),
-    np.array([2, 1, 0, 0]),
     np.array([4, 0, 0, 0]),
-    np.array([0, 0, 1, 0]),
-    np.array([1, 1, 0, 0]),
     np.array([3, 0, 0, 0]),
+    np.array([2, 1, 0, 0]),
+    np.array([0, 2, 0, 0]),
+    np.array([1, 0, 1, 0]),
+    np.array([1, 1, 0, 0]),
+    np.array([3, -1, 0, 0]),
+    np.array([4, 1, -1, 0]),
+    np.array([3, 0, 1, -1]),
+    np.array([0, 0, 0, 1]),
+    np.array([0, 0, 1, 0]),
     np.array([-3, 0, 0, 1]),
     np.array([2, -2, 0, 1]),
     np.array([-2, 0, 1, 0]),
     np.array([-2, 2, 0, 0]),
     np.array([-4, 0, 2, 0]),
-    # np.array([3, -1, 0, 0]),
     # np.array([2, 3, -2, 0]),
     # np.array([2, 1, -2, 1]),
-    # np.array([3, 0, 1, -1]),
     # np.array([3, -2, 1, 0]),
     # np.array([2, -3, 2, 0]),
     # np.array([2, 2, 0, -1]),
@@ -599,7 +643,6 @@ def find_best_learn(m: 'Model') -> 'Learn':
     # np.array([0, -3, 0, 2]),
     # np.array([1, 1, 1, -1]),
     # np.array([1, 2, -1, 0]),
-    # np.array([4, 1, -1, 0]),
     # np.array([-5, 0, 0, 2]),
     # np.array([-4, 0, 1, 1]),
     # np.array([0, 3, 2, -2]),
@@ -624,15 +667,15 @@ def find_best_learn(m: 'Model') -> 'Learn':
 def apply_simple_algorithm(m: 'Model'):
     for sort in m.sorts:
         if sort.is_castable(m.me.inventory):
-            return Retour.construct(sort, f"DEFAULT SORT {sort}")
-    return Retour(ActionType.REST, 0, "DEFAULT REST :/")
+            return Retour(sort, f"DEFAULT SORT {sort}")
+    return Retour(ActionType.REST.value, "DEFAULT REST :/")
 
 
 def act(retour: Retour, m: 'Model') -> 'Model':
     if not retour:
         retour = apply_simple_algorithm(m)
     retour.apply()
-    if retour.action_type == ActionType.POTION:
+    if isinstance(retour.action, Potion):
         m.nb_potions_to_craft -= 1
     return m
 
@@ -650,12 +693,17 @@ def go_for_potion(m: Model) -> 'Retour':
     print(f"potion_objectif = (id={potion_objectif.id}, len={potion_objectif.get_distance()}, "
           f"score={potion_objectif.get_score( m)})", file=sys.stderr, flush=True)
     retour = potion_objectif.get_first_retour()
-    if retour != None and retour.action_type == ActionType.SORT:
-        retour.intent = f"{potion_objectif.path[-1]} for {potion_objectif}"
+    if retour != None:
+        if isinstance(retour.action, Learn):
+            retour.intent = f"LEARN {potion_objectif.path[-1]} for {potion_objectif.path[-1].rentability_on_buy(m.me.inventory)}"
+        elif isinstance(retour.action, Sort):
+            retour.intent = f"{potion_objectif.path[-1]} for {potion_objectif}"
     return retour
 
 
 def go_for_learn(m: 'Model') -> 'Retour':
+    if len(m.sorts) >= NB_LEARN_MAX:
+        return None
     to_learn = find_best_learn(m)
     if to_learn:
         end = Node(Inventory(to_learn.achat_cout), [], learns=None, precedent=None, goal=None, sort_used=None, m=m)
@@ -665,8 +713,8 @@ def go_for_learn(m: 'Model') -> 'Retour':
         if path == None:
             return None
         if path == []:
-            return Retour(ActionType.LEARN, to_learn.id, f"LEARN SORT {to_learn} !")
-        return Retour.construct(path[-1], f"LEARNING ... {to_learn}")
+            return Retour(to_learn, f"LEARN SORT {to_learn} !")
+        return Retour(path[-1], f"LEARNING ... {to_learn}")
     return None
 
 
@@ -677,14 +725,12 @@ def run():
         m = Model.read(nb_potions_to_craft)
         m.debut_time = time.time()
 
-        for learn in m.learns:
-            debug(f"{learn} repeatable = {learn.repeatable}")
         retour = think(m)
         m = act(retour, m)
 
         current_round += 1
         nb_potions_to_craft = m.nb_potions_to_craft
-        print(f"round = {current_round} (time={(time.time() - m.debut_time) * 1000})", file=sys.stderr, flush=True)
+        print(f"round = {current_round} (time={(time.time() - m.debut_time) * 1000}ms)", file=sys.stderr, flush=True)
 
 
 if __name__ == '__main__':
