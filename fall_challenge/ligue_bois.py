@@ -16,14 +16,19 @@ COEF_COUT_VS_REWARD = 2
 STOP_VALUE_TRESHOLD = 15
 NB_SPELLS_CATEGORY = 5
 NB_SPELLS_BY_CATEGORY = 2
-NB_LEARN_MAX = 4 + 2 + NB_SPELLS_BY_CATEGORY * NB_SPELLS_CATEGORY
-# NB_LEARN_MAX = 13
+# NB_LEARN_MAX = 4 + 2 + NB_SPELLS_BY_CATEGORY * NB_SPELLS_CATEGORY
+NB_LEARN_MAX = 14
+MIN_VALUE_GAIN_PYRAMIDE = 0.5
+PYRAMIDE_NEGATIF_COEF = 1
+PYRAMIDE_NEGATIF_COEF_BY_NEW_SORTS = 0.5
+PYRAMIDE_SHOULD_STOP_AT_TOTAL_VALUE = 25
 
 
 # REFAIRE L'HEURISTIQUE !!! Elle doit être une approximation du TEMPS restant. Et pas de la distance en gemmes !!!
 # Faire l'achat des sorts en "pyramide" en sommant les coûts et les rewards. ==> le Temps devient la somme de ces
 # scores divisé par le nombre de sorts ! <3
 # Faire un chemin vers 2 potions d'un coup.
+# Quand j'ai 5 potions, voir si il faut rush ou prendre la grande potion !
 
 
 def debug(message: str, end="\n"):
@@ -169,7 +174,8 @@ class Retour:
             debug(f"ACT = WAIT {self.intent}")
         elif self.action.type == ActionType.SORT.value:
             print(f"CAST {self.action.id} {self.action.multiplicity} MUL={self.action.multiplicity} {self.intent}")
-            debug(f"ACT = CAST {self.action.id} {self.action.multiplicity} MUL={self.action.multiplicity} {self.intent}")
+            debug(
+                f"ACT = CAST {self.action.id} {self.action.multiplicity} MUL={self.action.multiplicity} {self.intent}")
         elif self.action.type == ActionType.POTION.value:
             print(f"BREW {self.action.id} {self.intent}")
             debug(f"ACT = BREW {self.action.id} {self.intent}")
@@ -418,6 +424,13 @@ class Action:
                          castable, repeatable)
 
 
+def time_to_generate_gemmes(m: 'Model') -> 'np.array':
+    pyramide = get_pyramide(m)
+    times = len(m.sorts) / np.array([max(p, 1) for p in pyramide])
+    times = [min(t, s) for t, s in zip(times, np.array([1, 2, 3, 4]))]
+    return times
+
+
 class Potion:
     def __init__(self,
                  id: int,
@@ -550,14 +563,27 @@ def avancement_from_a_to_b(a: np.array, b: np.array) -> float:
     return total
 
 
+# def distance_from_a_to_b(a: np.array, b: np.array) -> float:
+#     a = a.copy()
+#     b = b.copy()
+#     total = 0
+#     diff = b - a
+#     diff[diff < 0] = 0
+#     return total
+
+
 def compute_heuristique(n: 'Node', goal: 'Node', m: 'Model') -> float:
-    total = avancement_from_a_to_b(n.inventory.inv, goal.inventory.inv)
+    # total = avancement_from_a_to_b(n.inventory.inv, goal.inventory.inv)
+    diff = goal.inventory.inv - n.inventory.inv
+    diff[diff < 0] = 0
+    times_for_gemmes = time_to_generate_gemmes(m)
+    total = np.sum(diff * times_for_gemmes)
 
     # from_sorts = compute_heuristique_sorts(n.sorts, m)
     # debug(f"heuristique from gemmes = {total} from sorts = {from_sorts}({len(n.sorts)})")
     # total += from_sorts
     sorts_castables = [s for s in n.sorts if isinstance(s, str) or s.castable]
-    total += (0.01 * len(sorts_castables))
+    total -= (0.01 * len(sorts_castables))
     return total
 
 
@@ -575,6 +601,7 @@ class Node:
                  goal: 'Node',
                  sort_used: Sort,
                  m: 'Model'):
+        t = time.time()
         self.inventory = inventory
         self.sorts = sorts
         self.learns = learns
@@ -591,6 +618,7 @@ class Node:
             self.heuristique = None
             self.value = None
             self.sort_used = None
+        debug(f"t = {(t - time.time()) * 1000}ms")
 
     def get_voisins(self, goal: 'Node', m: 'Model', depth_max: int) -> List['Node']:
         if depth_max != -1 and self.cout >= depth_max:
@@ -604,8 +632,7 @@ class Node:
             nodes.append(node)
 
         usefull_learn = self.get_possible_learns()
-        usefull_learn = [l for l in usefull_learn if l.rentability_on_buy(self.inventory) >= 2]
-        sorted(usefull_learn, key=lambda l: -l.rentability_on_buy(self.inventory))
+        usefull_learn = [l for l in usefull_learn if l.rentability_on_buy(self.inventory) >= 1]
         for learn in usefull_learn:
             new_inventory = self.inventory.copy()
             new_inventory.update_inventory_with_learn(learn)
@@ -687,14 +714,15 @@ def a_star(start: Node, end: Node, m: 'Model', depth_max=-1) -> List[Sort]:
             debug(f"Out of time !")
             break
 
-        current = opened[-1]
-        opened = opened[:-1]
+        current = opened[0]
+        opened = opened[1:]
 
         if current.is_better_than(end):
             path = compute_path_backward(current)
             return path
 
         voisins = current.get_voisins(end, m, depth_max)
+        # debug(f"time = {(time.time() - m.debut_time) * 1000}ms")
 
         for voisin in voisins:
             if voisin not in closed:
@@ -779,6 +807,41 @@ def get_first_learn(m: 'Model') -> 'Learn':
     return m.learns[0]
 
 
+def get_pyramide_negatif_coef(m: 'Model') -> float:
+    return 1 + PYRAMIDE_NEGATIF_COEF * PYRAMIDE_NEGATIF_COEF_BY_NEW_SORTS * (len(m.sorts) - NB_SORTS_INITIAUX)
+
+
+def get_poids_gemmes(m: 'Model') -> 'np.array':
+    nb_gemmes_total = np.sum([np.sum(p.cout) for p in m.potions])
+    nb_gemmes = np.sum([p.cout for p in m.potions], axis=0)
+    poids = nb_gemmes / nb_gemmes_total * NB_GEMMES
+    return poids
+
+
+def get_pyramide_value(pyramide: 'np.array', m: 'Model') -> float:
+    poids_gemmes = get_poids_gemmes(m)
+    negatif_coef = get_pyramide_negatif_coef(m)
+    poids_gemmes[pyramide < 0] *= negatif_coef
+    nb_gemmes = np.sum([p.cout for p in m.potions], axis=0)
+    pyramide_cape = np.array([min(p, g) for p, g in zip(pyramide, nb_gemmes)])
+    pyramide_value = np.sum(pyramide_cape * poids_gemmes, axis=0)
+    return pyramide_value
+
+
+def find_best_learn_for_pyramide(m: 'Model') -> 'Learn':
+    pyramide = get_pyramide(m)
+    new_pyramides_values = []
+    for learn in m.learns:
+        new_pyramide = pyramide + learn.reward - learn.cout
+        new_pyramide_value = get_pyramide_value(new_pyramide, m)
+        new_pyramides_values.append(new_pyramide_value)
+    if len(new_pyramides_values) == 0:
+        return None
+    argmax_learn = np.argmax(new_pyramides_values)
+    best_learn = m.learns[argmax_learn]
+    return best_learn
+
+
 def find_best_learn(m: 'Model') -> 'Learn':
     spells_to_look_at = needed_spells(m)
     debug(f"needed_spells = {spells_to_look_at}")
@@ -820,20 +883,6 @@ def go_for_value(m: 'Model') -> 'Retour':
         return Retour(path[-1], f"VALUE {path[-1]}")
 
 
-def think(m: 'Model') -> 'Retour':
-    retour = if_can_brew_brew(m)
-    if retour:
-        return retour
-    retour = go_for_learn(m)
-    if retour:
-        return retour
-    retour = go_for_value(m)
-    if retour:
-        return retour
-    retour = go_for_potion(m)
-    return retour
-
-
 def go_for_potion(m: Model) -> 'Retour':
     debug(f"GO FOR POTION")
     potion_objectif = find_greedy_objectif(m)
@@ -848,8 +897,8 @@ def go_for_potion(m: Model) -> 'Retour':
     return retour
 
 
-def go_for_learn(m: 'Model') -> 'Retour':
-    debug(f"GO FOR LEARN")
+def go_for_learn_spells_category(m: 'Model') -> 'Retour':
+    debug(f"GO FOR LEARN SPELLS CATEGORY")
     nb_needed = get_nb_needed_spells(m)
     debug(f"Nb needed spells = {nb_needed}")
     if nb_needed <= NB_SPELLS_BY_CATEGORY or len(m.sorts) >= NB_LEARN_MAX:
@@ -858,6 +907,13 @@ def go_for_learn(m: 'Model') -> 'Retour':
     #     return None
     to_learn = find_best_learn(m)
     # to_learn = get_first_learn(m)
+    if to_learn:
+        return try_learn_learn(m, to_learn)
+    debug(f"Need to learn, but don't know what to learn ! :'(")
+    return None
+
+
+def try_learn_learn(m: 'Model', to_learn: 'Learn') -> 'Retour':
     if to_learn:
         debug(f"Want to learn this {to_learn}")
         end = Node(Inventory(to_learn.achat_cout), [], learns=None, precedent=None, goal=None, sort_used=None, m=m)
@@ -877,6 +933,53 @@ def go_for_learn(m: 'Model') -> 'Retour':
     return None
 
 
+def should_stop_learn_pyramide(to_learn: 'Learn', m: 'Model') -> bool:
+    old_pyramide = get_pyramide(m)
+    old_value = get_pyramide_value(old_pyramide, m)
+    new_pyramide = old_pyramide - to_learn.cout + to_learn.reward
+    new_value = get_pyramide_value(new_pyramide, m)
+    gain_value = new_value - old_value
+    debug(f"Value expected learn spell = {gain_value}")
+    not_enought_gain = gain_value < MIN_VALUE_GAIN_PYRAMIDE
+    # old_pyramide_total_value_high_enough = np.sum(old_pyramide, axis=0) >= PYRAMIDE_SHOULD_STOP_AT_TOTAL_VALUE
+    everything_positif = all(old_pyramide >= 0)
+    # return not everything_positif and (not_enought_gain or old_pyramide_total_value_high_enough)
+    has_enought_sorts = len(m.sorts) > NB_LEARN_MAX
+    if not everything_positif:
+        return False
+    return not_enought_gain or has_enought_sorts
+
+
+def get_pyramide(m: 'Model') -> 'np.array':
+    pyramide = np.zeros(NB_GEMMES)
+    sorts = m.sorts.copy()
+    sorted(sorts, key=lambda s: 1 if s.repeatable else 0)
+    while len(sorts) > 0:
+        has_changed = False
+        for sort in sorts:
+            while all(pyramide - sort.cout >= 0):
+                pyramide += sort.reward - sort.cout
+                has_changed = True
+                if sort in sorts:
+                    sorts.remove(sort)
+                if not sort.repeatable:
+                    break
+        if not has_changed:
+            break
+    return pyramide
+
+
+def go_for_learn_pyramide(m: 'Model') -> 'Retour':
+    debug(f"GO FOR LEARN PYRAMIDE")
+    debug(f'Pyramide = {get_pyramide(m)} (negative coef = {get_pyramide_negatif_coef(m)})')
+    to_learn = find_best_learn_for_pyramide(m)
+    if not to_learn or should_stop_learn_pyramide(to_learn, m):
+        return None
+    retour = try_learn_learn(m, to_learn)
+    debug(f"3 time = {(time.time() - m.debut_time) * 1000}ms")
+    return retour
+
+
 def if_can_brew_brew(m: Model) -> 'Retour':
     debug(f"IF CAN BREW POTION")
     brewables = [p for p in m.potions if p.is_brewable(m.me.inventory)]
@@ -886,6 +989,25 @@ def if_can_brew_brew(m: Model) -> 'Retour':
     max_brewables = [b for b in brewables if b.price == max_price]
     best_brewable = max_brewables[0]
     return Retour(best_brewable, f"INSTA_BUY {best_brewable}")
+
+
+def think(m: 'Model') -> 'Retour':
+    retour = if_can_brew_brew(m)
+    debug(f"IF CAN BREW POTION time = {(time.time() - m.debut_time) * 1000}ms")
+    if retour:
+        return retour
+    # retour = go_for_learn_spells_category(m)
+    retour = go_for_learn_pyramide(m)
+    debug(f"GO FOR LEARN PYRAMIDE time = {(time.time() - m.debut_time) * 1000}ms")
+    if retour:
+        return retour
+    retour = go_for_value(m)
+    debug(f"GO FOR VALUE time = {(time.time() - m.debut_time) * 1000}ms")
+    if retour:
+        return retour
+    retour = go_for_potion(m)
+    debug(f"GO FOR POTION time = {(time.time() - m.debut_time) * 1000}ms")
+    return retour
 
 
 def run():
