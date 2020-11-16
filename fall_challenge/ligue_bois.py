@@ -20,6 +20,12 @@ NB_LEARN_MAX = 4 + 2 + NB_SPELLS_BY_CATEGORY * NB_SPELLS_CATEGORY
 # NB_LEARN_MAX = 13
 
 
+# REFAIRE L'HEURISTIQUE !!! Elle doit être une approximation du TEMPS restant. Et pas de la distance en gemmes !!!
+# Faire l'achat des sorts en "pyramide" en sommant les coûts et les rewards. ==> le Temps devient la somme de ces
+# scores divisé par le nombre de sorts ! <3
+# Faire un chemin vers 2 potions d'un coup.
+
+
 def debug(message: str, end="\n"):
     print(message, file=sys.stderr, flush=True, end=end)
     # pass
